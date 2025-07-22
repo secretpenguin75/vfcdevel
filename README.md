@@ -10,7 +10,7 @@ git clone git@github.com:secretpenguin75/vfc-devel.git
 Ensuite creer un fichier jupyter notebook et importer la fonction carotte avec
 
 ```
-from lscevfc.profilegen import Profile_gen
+from vfcdevel.profilegen import Profile_gen
 ```
 
 Et ensuite, appeler les fonctions
