@@ -14,8 +14,8 @@ import copy
 import matplotlib as mpl
 
 # custom libraries
-import lscevfc.forwardmodel as fm
-from lscevfc.utils import *
+import vfcdevel.forwardmodel as fm
+from vfcdevel.utils import *
 
 def Profile_gen(Date,Tp,Iso,Temp,rho, noise_scale_we = 20 ,noise_level = 0.8):
         
