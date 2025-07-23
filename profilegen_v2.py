@@ -1,0 +1,247 @@
+#%% Functions VFC
+
+# generic libraries
+from pathlib import Path
+import netCDF4
+import os
+import numpy as np
+import datetime as datetime
+import pandas as pd
+import xarray as xr
+import matplotlib.pyplot as plt
+from inspect import getmembers, isfunction
+import pickle as pkl
+import scipy
+import copy
+import matplotlib as mpl
+
+# custom libraries
+import vfcdevel.forwardmodel as fm
+from vfcdevel.utils import *
+
+
+
+
+def temp_to_d18O_DC(Temp): # in Kelvin
+    #Definition of the isotopic composition - temperature relationship
+    alpha = 0.46; beta = -32;
+    return alpha*(Temp-273.15)+beta
+
+def Profile_gen_legacy(Date,Temp,Prec,rho, mixing_scale_mm = 40, noise_scale_mm = 10, Precip_d18O = df['precipd18O']-4.1, mixing_level=0.1, noise_level = 0.1):
+
+    # Generates the profile of isotopic composition of a snow column
+    #
+    # This calculates the isotopic composition of polar firn for the stable
+    # water isotopes oxygen-18, depending on site-specific parameters, as well
+    # as the temperature and precipitation time series. 
+    #
+    # Date : Datetime vector object, describing the temperature (Temp) and
+    #        precipitation (Prec) time series
+    # Temp : Numeric vector of temperature (°C), same length as Date
+    # Prec : Numeric vector of precipitation amount (kg.m-2 or mm w.e.), 
+    #        same length as Date
+    # rho  : Local firn density (kg.m-3), single value
+    #
+    # This routine use the temperature and precipitation time series to create
+    # a virtual ice cores that compiles precipitation intermittency and
+    # diffusion. 
+    # First, the temperature time serie is converted into an isotopic
+    # composition of precipitation using common coefficient (alpha and beta,
+    # Stenni et al, 2016). For a specific site where these parameters are
+    # available, these can be adjusted. 
+    # Then, the intermittent virtual core is computed by adding layers of
+    # snow with a width determined by the precipitation amount associated with
+    # each events, and an isotopic composition calculated from the temperature
+    # time serie. This intermittent virtual core is interpolated onto a regular
+    # grid, using a constant step of 1 mm, which can lead to very large
+    # variables for important accumulation sites or very long time series. The
+    # resolution at which the core is interpolated should remain small compared
+    # to the diffusion length (see below). 
+    # Then, the isotopic profile is diffused, and the diffused virtual core is
+    # generated. Finally, the intermittent (d18O_int) and the diffused 
+    # (d18O_diff) virtual core profiles are blocked averaged to a resolution 
+    # of 1 cm, a value similar to the thickness of samples from ice core 
+    # records.
+    #
+    # This function was created in the framework of the manuscript Casado et
+    # al, Climatic information archived in ice cores: impact of intermittency
+    # and diffusion on the recorded isotopic signal in Antarctica, Climate of
+    # the Past (2020)
+    
+    # a wrapper that does the in principle the same as the original matlab version
+    # profile gen, diffuse and block average
+
+    #Preamble;
+    #To avoid numerical errors leading to doublons of datapoints with the same depth due to numerical approximation
+    # (legacy (superfluous?), for now to have the same result as the matlab version)
+
+    keep = (Prec>1e-10)
+    Date = Date[keep]
+    Temp = Temp.loc[keep]
+    Prec = Prec.loc[(keep)]
+    if not Precip_d18O is None: Precip_d18O = Precip_d18O.loc[keep]
+
+    # generate core
+    depth,d18O,d18O_diff,date = Profile_gen(Date,Temp,Prec,rho, mixing_level, noise_level,Precip_d18O, mixing_scale_mm, noise_scale_mm)
+    
+    #block average
+    df = pd.DataFrame({'d18O':d18O,'d18O_diff':d18O_diff,'date':pd.DatetimeIndex(date)}).set_index(depth)
+    df = df.set_index (df.index + np.diff(df.index)[-1]/2)
+    #df_int = block_average(df,.01) # block average at 1cm resolution  
+    
+    #ICORDA resolution
+    df_int_1 = block_average(df[df.index <= 1.939],.033)                    
+    df_int_2 = block_average(df[(df.index > 1.939) & (df.index <= 2.872)],.040)                    
+    df_int_3 = block_average(df[df.index > 2.872],.0003)                    
+    df_int = pd.concat([df_int_1, df_int_2, df_int_3])          
+    
+    # #Subglacior resolution
+    # df_int_1 = block_average(df[df.index <= 1.],.040)                    
+    # df_int_2 = block_average(df[(df.index > 1.) & (df.index <= 2.)],.038)                    
+    # df_int_3 = block_average(df[(df.index > 2.) & (df.index <= 3.)],.053)                    
+    # df_int_4 = block_average(df[df.index > 3.],.036)                    
+    # df_int = pd.concat([df_int_1, df_int_2, df_int_3, df_int_4])          
+    
+    depth_int = df_int.index
+    d18O_int = df_int['d18O']
+    d18O_diff_int = df_int['d18O_diff']
+    date_int = df_int['date']
+
+    return depth_int,d18O_int,d18O_diff_int,date_int
+
+def Profile_gen(Date,Temp,Prec,rho, mixing_level=0.1, noise_level=0.1, Precip_d18O = df['precipd18O']-4.1, mixing_scale_mm = 40, noise_scale_mm = 10):
+        
+    #Generates the profile of isotopic composition of a snow column
+    # <!> generates profile at the mm resolution, no block average (see profile_gen_legacy)
+    ddays = np.diff(Date).astype('timedelta64[D]').astype(int) # convert to number of days, and we will assume precip is in units of per days
+    ddays = np.concatenate([[ddays[0]],ddays]) # restore first value, assume it is similar to second value (daily, monthly...)
+
+    ## Data preparation
+    accu = np.sum(Prec*ddays)/((Date[-1]-Date[0]).days/(365)) # Calculation of the accumulation rate in mm.a-1 w.e.)
+    Prec = Prec/rho*997/1000 #Conversion to meters and snow equivalent
+    Prec.loc[(Prec<=0)] = 0 #Negative precipitation cannot be taken into account. In the case of true accumulation, where negative values could occur, changes to the script need to be made.
+    print('accu =', accu)
+
+    ## Compute precipitation intermittent depth serie    
+    date_raw = Date.to_numpy()
+    if Precip_d18O is None:
+        # if d18O is not provided; compute from temperature
+        d18O_raw = temp_to_d18O_DC(Temp).to_numpy()
+    else:
+        #else, just copy the input d18O
+        d18O_raw = Precip_d18O.to_numpy()
+        
+    depth_raw = np.cumsum(Prec.to_numpy()[::-1]*ddays)[::-1]  # to meters
+    #depth_raw_mean = depth_raw[:-1] + np.diff(depth_raw)/2; # middle grid points # I don't use this at the moment
+
+
+    ## Sublimation (removing isotopes, no snow layer thickness change, only density)
+    ## Condensation from the atmosphere
+    ## Frost at the surface
+    ## Condensation from the snow below
+
+    ################################################################## Interpolation to a regular grid ###############################################################
+    step = 0.001; # grid of 1mm
+    Depth_tot = depth_raw[0]
+    depth_even = np.arange(step,Depth_tot-step,step);
+    d18O_ini = np.interp(depth_even,depth_raw[::-1],d18O_raw[::-1]); # invert depth_raw to be increasing
+    date_even = depth_time_interp(depth_even,depth_raw[::-1],Date[::-1]) # date even is now decreasing
+    
+    df = pd.DataFrame({'depth_even': depth_even, 'd18O_ini': d18O_ini})    
+    
+    ####################################################################### Generate white noise #####################################################################
+    sig_d18O = np.nanstd(d18O_ini); #d18O_int
+    m_d18O = np.nanmean(d18O_ini);
+    wn18O = np.full(d18O_ini.shape,np.nan)
+    
+    noise_scale = noise_scale_mm
+    # RANDOM AVEC DISTRIBUTION GAUSSIENNE
+    wn18O = np.zeros_like(d18O_ini, dtype=float)
+    for i in range(len(d18O_ini) // noise_scale):
+        wn18O[noise_scale * i : noise_scale * (i + 1)] = np.random.randn()
+    ind = np.argwhere(np.isnan(wn18O))
+    wn18O[ind]= np.random.randn()
+  
+    ################################################################# VFC[d18O ini & white noise] (Laepple) ###########################################################
+    factor = 1/np.sqrt(noise_scale/10)
+    d18O_noise_Laepple = np.sqrt(1 - noise_level)*d18O_ini + np.sqrt(noise_level)*factor*sig_d18O*wn18O
+    
+    ######################################################################### Mixing ##################################################################################
+    df = pd.DataFrame({'depth_even': depth_even, 'd18O_noise': d18O_noise_Laepple})
+    df['d18O_rolling_avg'] = df['d18O_noise'].rolling(window=mixing_scale_mm, center=True).mean()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
+    d18O_mix = df['d18O_rolling_avg']
+    
+    ################################################################# VFC[d18O ini & white noise & Mixing] ############################################################
+    d18O_mix_noise =  (1-mixing_level) * d18O_noise_Laepple + mixing_level * d18O_mix
+    
+    #################################################################### Restore initial mean #################################################################
+    d18O_even = d18O_mix_noise
+    d18O_even = d18O_even -np.nanmean(d18O_even) + m_d18O;
+                                                  
+    ############################################################################ Diffusion ############################################################################
+    d18O = d18O_even
+    depth = depth_even
+    Tmean = np.mean(Temp)
+    
+    d18O[0] = d18O[1]; # Correction for the bad definition of the surface
+    depthwe = depth/1000*320 #conversion depth snow non tassee -> en we
+    
+    depthdummysnow = np.arange(0,1000/320*np.max(depthwe),0.001) #on prepare une profil de la bonne taille entre snow et we
+    depthdummywe,rhod =  fm.DensityHL(depthdummysnow,rho,Tmean,accu); #on calcule HL et la profondeur en we
+    
+
+    depthHL = np.interp(depthwe,depthdummywe,depthdummysnow) #conversion we -> en snow equiv
+    
+    
+    sigma18,sigmaD = fm.Diffusionlength(depthHL,rhod,Tmean,650,accu);
+    
+    # #POUR SUGBLACIOR STORAGE = 5 YEARS
+    #sigma18_15 = (sigma18_19**(2) + 5.6**(2))**(1/2)
+    #sigma18 = sigma18_15
+    
+    d18O_diff = fm.Diffuse_record(d18O,sigma18,0.1)[0];
+
+    return depthHL,d18O_even,d18O_diff,date_even
+
+
+
+def VFC_and_spectra_v2(df, mix_scale, noise_scale, nl, ml, regular_grid):
+    
+    spectra_10freq_diff = pd.DataFrame() ; spectra_10psd_diff = pd.DataFrame()
+    
+    for i_df in range(1,11):
+        # VFC
+        depth_int, d18O_int, d18O_diff_int, Date_int_nl0_mv0  = Profile_gen_legacy(df.index,df['tsol'],precip_adjust*24*3600,320, mixing_scale_mm = mix_scale, noise_scale_mm = noise_scale, noise_level=nl, mixing_level=ml)
+        VFC_d18O = pd.DataFrame({'Depth(m)': depth_int, 'd18O no diff': d18O_int, 'd18O diff': d18O_diff_int})
+        
+        # Interpolate VFC data on a regular grid
+        VFC_depth_regular = np.arange(depth_int.min(), depth_int.max(), regular_grid)
+        g = 1/regular_grid
+        interp_d18O = interp1d(depth_int, d18O_int , kind='linear')
+        interp_d18O_diff = interp1d(depth_int, d18O_diff_int, kind='linear')
+        VFC_d18O_interp = pd.DataFrame({'Depth(m)': VFC_depth_regular,'d18O no diff': interp_d18O(VFC_depth_regular),'d18O diff': interp_d18O_diff(VFC_depth_regular)})
+        
+        # Spectrum
+        freq, psd = mtm_psd(VFC_d18O_interp['d18O no diff'].dropna(),g)
+        spectrum = pd.DataFrame({'freq': freq, 'psd': psd})
+        freq_diff, psd_diff = mtm_psd(VFC_d18O_interp['d18O diff'].dropna(),g)
+        spectrum_diff = pd.DataFrame({'freq_diff': freq_diff, 'psd_diff': psd_diff})
+        
+        spectra_10freq_diff['freq_diff{}'.format(i_df)] = freq_diff
+        spectra_10psd_diff['psd_diff{}'.format(i_df)] = psd_diff
+    
+    # Average VFC and spectrum diff
+    spectra_10freq_diff['freq_diff_mean'] = spectra_10freq_diff.mean(axis=1)
+    spectra_10psd_diff['psd_diff_mean'] = spectra_10psd_diff.mean(axis=1)
+    
+    # Smooth spectrum
+    psd_sm, freq_sm = lsm.logsmooth(psd, freq, 0.05)[:2]  #juste le dernier car pas besoin d'en faire plein en non diffusé
+    spectrum_sm = pd.DataFrame({'freq_sm': freq_sm, 'psd_sm': psd_sm})
+    
+    psd_diff_mean_sm, freq_diff_mean_sm = lsm.logsmooth(np.array(spectra_10psd_diff['psd_diff_mean']), np.array(spectra_10freq_diff['freq_diff_mean']), 0.05)[:2]
+    spectrum_diff_mean_sm = pd.DataFrame({'freq_diff_mean_sm': freq_diff_mean_sm, 'psd_diff_mean_sm': psd_diff_mean_sm})
+    
+    # Merge
+    spectra = pd.concat([spectrum, spectrum_sm, spectra_10freq_diff, spectra_10psd_diff, spectrum_diff_mean_sm], axis=1)
+      
+    return VFC_d18O, spectra
