@@ -17,6 +17,54 @@ def block_average(df,res):
     
     return df.groupby('depth').mean()
 
+
+def decimalyear_to_str(decimal_year):
+    
+    year = int(decimal_year)
+    remainder = decimal_year - year
+    
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+        days_in_year = 366
+        days_in_months = np.array([31,29,31,30,31,30,31,31,30,31,30,31])
+
+    else:
+        days_in_year = 365
+        days_in_months = np.array([31,28,31,30,31,30,31,31,30,31,30,31])
+
+    cumulateddays = np.array([0]+list(np.cumsum(days_in_months)))
+
+
+    day = int(remainder*days_in_year)
+    ind = np.argmax(cumulateddays-day>0)
+    month = ind+1
+    day = (cumulateddays-day)[ind]
+
+    out = datetime.date(year,month,day)
+
+    return out
+
+def str_to_decimalyear(string):
+    
+    year = int(string[0:4])
+    month = int(string[5:7])
+    day = int(string[8:10])
+
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+        days_in_year = 366
+        days_in_months = np.array([31,29,31,30,31,30,31,31,30,31,30,31])
+    else:
+        days_in_year = 365
+        days_in_months = np.array([31,28,31,30,31,30,31,31,30,31,30,31])
+
+    cumulateddays = np.array([0]+list(np.cumsum(days_in_months)))
+    fraction = (cumulateddays[month-1]+(day-1))/days_in_year
+
+    decimal_year = year+fraction
+    
+    return year+fraction
+
+
+
 def ts_to_dt(ts_array):
     return [bobi.date() for bobi in ts_array]
 

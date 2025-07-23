@@ -5,7 +5,7 @@ coucou EMMA
 Dans un dossier de travail faire
 
 ```
-git clone git@github.com:secretpenguin75/vfc-devel.git
+git clone git@github.com:secretpenguin75/vfcdevel.git
 ```
 
 Ensuite creer un fichier jupyter notebook et importer la fonction carotte avec
