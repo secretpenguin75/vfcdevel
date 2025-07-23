@@ -1,6 +1,7 @@
 import datetime as datetime
 import pandas as pd
 import numpy as np
+import copy
 
 def band_mask(n,dmin,dmax):
     dist = (np.add.outer(np.arange(n), -np.arange(n)))
@@ -9,13 +10,16 @@ def band_mask(n,dmin,dmax):
 
 def block_average(df,res):
     
-    # takes as input a dataframe with depth (in m) as index
-    # and output resolution (in m)
+    # takes as input a dataframe with a depth (in meters) columns
+    # and output resolution (in meters)
     # returns the block average of the dataframe as the given resolution
+
+    df2 = copy.deepcopy(df)
+    depth = np.array(df2.index)
     
-    df['depth'] = (df.index // res) * res
+    df2['depth'] = (depth // res) * res
     
-    return df.groupby('depth').mean()
+    return df2.groupby('depth').mean()
 
 
 def decimalyear_to_str(decimal_year):

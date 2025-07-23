@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 def DensityHL(depth,rho_surface,T,bdot):
     
     #Constants
-    kRhoIce = 920      #Density of ice [kg/m^3]
+    kRhoIce = 917 #920      #Density of ice [kg/m^3]
     kRhoW = 1000       #Density of water [kg/m^3]
     kR = 8.314478      #Gas constant [J/(K * mol)]
 
