@@ -33,3 +33,27 @@ superplot(df,ICORDA)
 ```
 etc...
 
+
+nouveau package : pip install varname
+
+Modif push 25/07 :
+
+> ajout mixing_scale et noise_scale dans inputs fonction superplot. Mon local.py ressemble à ça:
+df.precipd18O-=4.1
+noise_scale_mm=10 ; mixing_scale_mm=40   #à modif
+superplot(df,ICORDA, 'ICORDA', noise_scale_mm, mixing_scale_mm)
+
+> Nouvelle fonction core_details dans runvfc.py avec la résolution des obs (ICORDA ou Subglacior), les couleurs, la grille régulière pour préparer les spectres.
+Les listes core resolution correspondent au détail de la résolution en discret sur les premiers mètres de la carotte qui n'est pas homogène.
+Si on ne veut pas utiliser la résolution des OBS il reste la ligne 
+#df_int = block_average(df,.01) # block average at 1cm resolution  
+commentée dans profilegen_v2
+La maille grille régulière (grid) corespond à la valeur moyenne des résolutions en discret.
+
+> Merge Profile_gen_legacy et Profile_gen
+
+> Plt.step plutôt que ma fonction plot_stairsteps
+
+> lundi j'ajoute la storage diffusion pour Subglacior
+
+> Prêt pour ICORDA et (quasi) Subglacior. Enjoy :)
