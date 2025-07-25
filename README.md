@@ -52,6 +52,8 @@ La maille grille régulière (grid) corespond à la valeur moyenne des résoluti
 
 > Merge Profile_gen_legacy et Profile_gen
 
+> Fichier plot.py renommé make_pretty_figures.py (tu peux rechanger mais plot c'était confus pour moi)
+
 > Plt.step plutôt que ma fonction plot_stairsteps
 
 > lundi j'ajoute la storage diffusion pour Subglacior
