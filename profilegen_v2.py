@@ -24,15 +24,14 @@ import vfcdevel.logsmooth as lsm
 from scipy.interpolate import interp1d
 
 
-
-
 def temp_to_d18O_DC(Temp): # in Kelvin
     #Definition of the isotopic composition - temperature relationship
     alpha = 0.46; beta = -32;
     return alpha*(Temp-273.15)+beta
 
-def Profile_gen_legacy(Date,Temp,Prec,Precip_d18O,rho, mixing_scale_mm = 40, noise_scale_mm = 10, mixing_level=0.1, noise_level = 0.1):
 
+def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_mm = 40, noise_scale_mm = 10):
+    
     # Generates the profile of isotopic composition of a snow column
     #
     # This calculates the isotopic composition of polar firn for the stable
@@ -78,43 +77,14 @@ def Profile_gen_legacy(Date,Temp,Prec,Precip_d18O,rho, mixing_scale_mm = 40, noi
     #Preamble;
     #To avoid numerical errors leading to doublons of datapoints with the same depth due to numerical approximation
     # (legacy (superfluous?), for now to have the same result as the matlab version)
-
+    
     keep = (Prec>1e-10)
     Date = Date[keep]
     Temp = Temp.loc[keep]
     Prec = Prec.loc[(keep)]
     if not Precip_d18O is None: Precip_d18O = Precip_d18O.loc[keep]
-
-    # generate core
-    depth,d18O,d18O_diff,date = Profile_gen(Date,Temp,Prec,Precip_d18O,rho, mixing_level, noise_level, mixing_scale_mm, noise_scale_mm)
     
-    #block average
-    df = pd.DataFrame({'d18O':d18O,'d18O_diff':d18O_diff,'date':pd.DatetimeIndex(date)}).set_index(depth)
-    df = df.set_index (df.index + np.diff(df.index)[-1]/2)
-    #df_int = block_average(df,.01) # block average at 1cm resolution  
     
-    #ICORDA resolution
-    df_int_1 = block_average(df[df.index <= 1.939],.033)                    
-    df_int_2 = block_average(df[(df.index > 1.939) & (df.index <= 2.872)],.040)                    
-    df_int_3 = block_average(df[df.index > 2.872],.0003)                    
-    df_int = pd.concat([df_int_1, df_int_2, df_int_3])          
-    
-    # #Subglacior resolution
-    # df_int_1 = block_average(df[df.index <= 1.],.040)                    
-    # df_int_2 = block_average(df[(df.index > 1.) & (df.index <= 2.)],.038)                    
-    # df_int_3 = block_average(df[(df.index > 2.) & (df.index <= 3.)],.053)                    
-    # df_int_4 = block_average(df[df.index > 3.],.036)                    
-    # df_int = pd.concat([df_int_1, df_int_2, df_int_3, df_int_4])          
-    
-    depth_int = df_int.index
-    d18O_int = df_int['d18O']
-    d18O_diff_int = df_int['d18O_diff']
-    date_int = df_int['date']
-
-    return depth_int,d18O_int,d18O_diff_int,date_int
-
-def Profile_gen(Date,Temp,Prec,Precip_d18O,rho, mixing_level=0.1, noise_level=0.1, mixing_scale_mm = 40, noise_scale_mm = 10):
-        
     #Generates the profile of isotopic composition of a snow column
     # <!> generates profile at the mm resolution, no block average (see profile_gen_legacy)
     ddays = np.diff(Date).astype('timedelta64[D]').astype(int) # convert to number of days, and we will assume precip is in units of per days
@@ -192,10 +162,7 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O,rho, mixing_level=0.1, noise_level=0.
     
     depthdummysnow = np.arange(0,1000/320*np.max(depthwe),0.001) #on prepare une profil de la bonne taille entre snow et we
     depthdummywe,rhod =  fm.DensityHL(depthdummysnow,rho,Tmean,accu); #on calcule HL et la profondeur en we
-    
-
     depthHL = np.interp(depthwe,depthdummywe,depthdummysnow) #conversion we -> en snow equiv
-    
     
     sigma18,sigmaD = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
     
@@ -204,18 +171,34 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O,rho, mixing_level=0.1, noise_level=0.
     #sigma18 = sigma18_15
     
     d18O_diff = fm.Diffuse_record_OLD(d18O,sigma18/100,step)[0];
+ 
+    #block average
+    df = pd.DataFrame({'d18O':d18O_even,'d18O_diff':d18O_diff,'date':pd.DatetimeIndex(date_even)}).set_index(depthHL)
+    df = df.set_index (df.index + np.diff(df.index)[-1]/2)
+    #df_int = block_average(df,.01) # block average at 1cm resolution  
+    
+    df_int_list = []
+    for i in range(len(c_resolution)):
+        df_int_i = block_average(df[(df.index >= c_resolution[i][0]) & (df.index < c_resolution[i][1])],c_resolution[i][2])
+        df_int_list.append(df_int_i)
+    df_int = pd.concat(df_int_list)       
+          
+    depth_int = df_int.index
+    d18O_int = df_int['d18O']
+    d18O_diff_int = df_int['d18O_diff']
+    date_int = df_int['date']
 
-    return depthHL,d18O_even,d18O_diff,date_even
+    return depth_int,d18O_int,d18O_diff_int,date_int
 
 
 
-def VFC_and_spectra_v2(df, mix_scale, noise_scale, nl, ml, regular_grid):
+def VFC_and_spectra_v2(df, core_resolution, mix_scale, noise_scale, nl, ml, regular_grid):
     
     spectra_10freq_diff = pd.DataFrame() ; spectra_10psd_diff = pd.DataFrame()
     
     for i_df in range(1,11):
         # VFC
-        depth_int, d18O_int, d18O_diff_int, Date_int_nl0_mv0  = Profile_gen_legacy(df.index,df['tsol'],df['precip_adjust']*24*3600,df['precipd18O'],320, mixing_scale_mm = mix_scale, noise_scale_mm = noise_scale, noise_level=nl, mixing_level=ml)
+        depth_int, d18O_int, d18O_diff_int, Date_int_nl0_mv0  = Profile_gen(df.index,df['tsol'],df['precip_adjust']*24*3600,df['precipd18O'], core_resolution, 320, mixing_scale_mm = mix_scale, noise_scale_mm = noise_scale, noise_level=nl, mixing_level=ml)
         VFC_d18O = pd.DataFrame({'Depth(m)': depth_int, 'd18O no diff': d18O_int, 'd18O diff': d18O_diff_int})
         
         # Interpolate VFC data on a regular grid
