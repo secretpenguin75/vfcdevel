@@ -1,9 +1,10 @@
-coucou
-coucou EMMA
-alut adrien 
-ça marche
-sur blocnote
+coucou  
+coucou EMMA  
+salut adrien   
+ça marche  
+sur blocnote  
 # Quickstart
+
 Dans un dossier de travail faire
 
 ```
@@ -19,43 +20,96 @@ from vfcdevel.profilegen import Profile_gen
 Et ensuite, appeler les fonctions
 
 ```
-depth,depthwe,rho,iso,iso_diff,date,sigma = Profile_gen(df['year'],df['tp'],df['d18O_inter'],Tmean,350)
+# load your favourite model output
+df = pd.read_csv('./vfcdevel/data/lmdz_DC.csv',index_col=0,parse_dates=True)
+df['precipd18O']-=4.1
+# create a virtual firn core from the model
+VFC = Profile_gen(df['decimalyear'],df['tp'],df['d18O_inter'],Tmean,350)
+plt.plot(VFC['d18O'])
 
 ```
+Now you can compare it to your _real_ core
 
 ```
 ICORDA = pd.read_excel("./data_emma/ICORDA_depth_age_d18O_model_period.xlsx")
 df = pd.read_csv('./vfcdevel/data/lmdz_DC.csv',index_col=0,parse_dates = True)
-
-from vfcdevel.runvfc import superplot
+plt.plot(ICORDA['d18O'])
+plt.plot(VFC['d18O_diff'])
+```
+Or use the super function superplot to explore parameter values
+```
+from vfcdevel.runvfc_v3 import superplot
 superplot(df,ICORDA)
 
 ```
 etc...
 
+# NEW! in version 31/07
 
-nouveau package : pip install varname
+truc inutiles; j'ai renomé des fichiers. Normalement j'ai bien fait les changements nécessaires partout
+- make_pretty_figures.py -> pretty_plot.py (keep file names short :-))
+- psd.py-> spectral_analysis.py (je me dis qu'on pourra rajouter les ondelettes dedans par après)
 
-Modif push 25/07 :
+- Nouvelle version de Profile_gen dans profilegen_v3
+( et VFC_and_spectra_v2 renomé en VFC_and_spectra dans ce fichier)
+how to use:
+```
+from vfcdevel.profilegen_v3 import Profile_gen,VFC_and_spectra
+from runvfc_v3 import superplot
+```
+Note: On peut toujours faire
+```
+from vfcdevel.profilegen_v2 import Profile_gen as Profile_gen_v2
+from vfcdevel.profilegen_V2 import VFC_and_spectra_v2
+from runvfc import supersplot as superplot_v2
+```
+et comparer...
 
-> ajout mixing_scale et noise_scale dans inputs fonction superplot. Mon local.py ressemble à ça:
-df.precipd18O-=4.1
-noise_scale_mm=10 ; mixing_scale_mm=40   #à modif
-superplot(df,ICORDA, 'ICORDA', noise_scale_mm, mixing_scale_mm)
+- J'ai modifié une seule chose dans v2: dans la partie mixing, dans le rolling je me suis permi de rajouter `,min_periods=1` dans le rolling. Garder en tête que le rolling va de gauche à droite/ de haut en bas pour notre profil en profondeur. La version par défaut fait la moyenne des n valeurs à droite (longueur de rolling window) Tu as utilisé "center", qui fait la moyenne des n valeurs autour du point, ce qui fait sens si on imagine qu'une valeur à une certaine profondeur est mélangée avec la neige qui viendra par la suite. Le comportement par défaut de pandas est de mettre des nans si il ne trouve pas ses n valeurs. ce sera le cas tout en haut de la carotte (pas de valeurs à gauche/ au dessus de depth = 0), hors on a bien de la neige, elle est juste uniquement mélangée avec la neige en dessous. min_periods = 1 (au lieu de min_periods = n) permet de ne pas avoir de nan. On pourrait dire min_periods = n//2 mais c'est plus simple de mettre n=1 et le résultat est le même.
 
-> Nouvelle fonction core_details dans runvfc.py avec la résolution des obs (ICORDA ou Subglacior), les couleurs, la grille régulière pour préparer les spectres.
-Les listes core resolution correspondent au détail de la résolution en discret sur les premiers mètres de la carotte qui n'est pas homogène.
-Si on ne veut pas utiliser la résolution des OBS il reste la ligne 
-#df_int = block_average(df,.01) # block average at 1cm resolution  
-commentée dans profilegen_v2
-La maille grille régulière (grid) corespond à la valeur moyenne des résolutions en discret.
+Donc, avant
+```
+vfc_even['d18O_noise'].rolling(window=mixing_scale, center=True).mean().to_numpy()
+```
+après
+```
+vfc_even['d18O_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()
+```
 
-> Merge Profile_gen_legacy et Profile_gen
+- J'ai également modifié une chose importante au tout début du script. Quand on passe de depth "raw" (la cumsum des precips) à depth even (dz régulier), on utilisait une interpolation pour calculer d18O et compagnie. C'est une erreur que j'avais faite au début en voulant simplifier le code de Mathieu (enlever les boucles for). Je n'arrive pas à remettre la main sur sa version matlab, mais il faisait une sorte d'équivalent de bloc average. C'est plus correcte car si tu y pense, en interpolant on peut facilement tomber entre deux valeurs qui sont très bruitées et qui n'ont rien à voir avec la valeur moyenne du milimetre (ce qui nous intéresse vraiment).
+J'avais corrigé ça dans mes versions ultérieures où j'ai ajouté la sublimation etc... mais je n'étais pas revenu sur Profile_gen. 
+J'ai remarqué ça car j'avais des grosse différences quand j'ai voulu changer la résolution pour générer la vfc (cm au lieu de milimetre) et quand j'ai remis le bloc average à la place de l'interpolation je n'avais plus ce problème. Pour pouvoir comparer nos version v2 et v3 côte à côte je me suis permi de modifier ça dans le v2 également. Normalement ça va contribuer légèrement à baisser les hautes fréquences. Malheureusement ça ralenti un peu l'execution de la version v2.
 
-> Fichier plot.py renommé make_pretty_figures.py (tu peux rechanger mais plot c'était confus pour moi)
 
-> Plt.step plutôt que ma fonction plot_stairsteps
+### Et maintenant pour les choses cool
 
-> lundi j'ajoute la storage diffusion pour Subglacior
+- NEW! le v3 sort un dataframe de VFC, donc
+```
+vfc = Profile_gen(...)
+```
+et puis simplement
+```
+plt.plot(vfc[['d18O','d18O_diff']])
+```
+et oui, c'est merveilleux... Les autres colonnes du vfc sont ['d18O_raw', 'date', 'd18O_noise', 'd18O_mix', 'd18O', 'rho', 'depth_we',
+       'd18O_diff', 'sigma18'] ou j'ai gardé les d18O de chaque étapes, ainsi que le profil de densité heron et langway, la profondeur eu, le sigma18. Ça permettra de faire les vérifications très rapidement en vérifiant les profils de densités et les longeurs de diffusion par exemple. On pourra aussi rajouter super facilement les autres espèces.
 
-> Prêt pour ICORDA et (quasi) Subglacior. Enjoy :)
+
+- Pour le v3, j'ai re-séparé le core_resolution du reste du profile_gen. Mon idée c'est: Profile_gen donne une carotte physique, avec une résolution typiquement milimetrique. Et puis on peut venir derrière appliquer le core_resolution (schéma d'échantillonnage). Je préfère toujours limiter le nombre d'arguments d'une fonction, faire des blocs de fonction qui font chacun une tâche, je trouve ça plus lisible.
+```
+vfc = Profile_gen(...)
+vfc2 = core_sample_emma(vfc,core_resolution)
+plt.plot(vfc['d18O'])
+plt.plot(vfc2['d18O'])
+```
+
+Et puis,
+
+- J'ai rajouté la résolution en entrée, res=1e-3. J'ai mis le mixing scale et noise scale en metre. Ils sont converti à la résolution du vfc avec
+```
+mixing_scale = mixing_scale_m/res
+etc...
+```
+Ça sera utile pour faire la carotte de 80m en cm au lieu de mm pour faire tourner le code un peu plus vite.
+
+- J'ai homogénéisé un peu partout les noms des entrées et l'ordre dans lequel elle apparaissent: noise_level, mixing_level mixing_scale_m, noise_scale_m, . Ce serait bien on essaye de garder les mêmes noms partout.
