@@ -79,6 +79,8 @@ def block_average(df,res):
     df2.index.name = None
 
     
+    df2.index.name = None # to avoid error in case the df.index is already called "depth" and since index name will be overwritten anyways
+    
     df2['depth'] = (depth // res) * res
     
     return df2.groupby('depth').mean()

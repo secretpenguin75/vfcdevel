@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 def DensityHL(depth,rho_surface,T,bdot):
     
     #Constants
+    
     kRhoIce = 917 #920      #Density of ice [kg/m^3]
     kRhoW = 1000       #Density of water [kg/m^3]
     kR = 8.314478      #Gas constant [J/(K * mol)]
@@ -22,47 +23,63 @@ def DensityHL(depth,rho_surface,T,bdot):
     #Critical density of point between settling and creep-dominated stages
     kRhoC = 550
 
-    #Herron-Langway Arrhenius rate constants
-    k0 = 11 * np.exp(-10160 / (kR * T))
-    k1 = 575 * np.exp(-21400 / (kR * T))
+    Rho0 = rho_surface
 
+    #Herron-Langway Arrhenius rate constants
+    k0 = 11 * np.exp(-10160 / (kR * T)) # eq. 6a in HL1980
+    k1 = 575 * np.exp(-21400 / (kR * T)) # eq. 6b in HL1980
+
+
+    facrc = kRhoC / (kRhoIce - kRhoC)
+    
+    facr0 = Rho0 / (kRhoIce - Rho0)
+
+    
+    #Critical depth at which density reaches kRhoC = 550 (h0.55 in HL1980)
+    
+    zc = 1 / (kRhoIce / kRhoW * k0) * ( np.log(facrc) - np.log(facr0) ) 
+                              
+    index_upper = np.argwhere(depth <= zc)
+    index_lower = np.argwhere(depth >  zc)
+
+    #Rate constants for depth-dependent steady-state densification
+    #(from converting the full time derivative to a depth derivative
+    #neglecting the partial time derivative to get steady-state solution)
+    
+    #d0 = c0 / bdot
+    #d1 = c1 / bdot
+
+    #d0 = k0 / kRhoW
+    #d1 = K1 / kRhoW
+    
+    
+    #Steady-state density profile
+    
+    q = np.full(len(depth),np.nan);
+    
+    q[index_upper] = facr0 * np.exp(kRhoIce / kRhoW * k0 * depth[index_upper]);
+    
+    q[index_lower] = facrc * np.exp(kRhoIce / kRhoW * k1 * (depth[index_lower] - zc));
+    
+    rho_prof = kRhoIce * (q/ (1+q)) ;  # equation 7 and 10 in HL1980 with q = Z0 or Z1
+
+    
     #Rate constants for time-dependent densification
     #(original Eq. (4) in Herron and Langway et al. (1980))
     
     A = bdot / kRhoW
     c0 = k0 * A
     c1 = k1 * np.sqrt(A)
-
-    #Rate constants for depth-dependent steady-state densification
-    #(from converting the full time derivative to a depth derivative
-    #neglecting the partial time derivative to get steady-state solution)
     
-    d0 = c0 / bdot
-    d1 = c1 / bdot
-
-    facr0 = rho_surface / (kRhoIce - rho_surface)
-    facrc = kRhoC / (kRhoIce - kRhoC)
-    
-    #Critical depth at which density reaches kRhoC
-    
-    zc = np.log(facrc / facr0) / (kRhoIce * d0)
-    index_upper = np.argwhere(depth <= zc)
-    index_lower = np.argwhere(depth > zc)
-    
-    #Steady-state density profile
-    
-    q = np.full(len(depth),np.nan);
-    q[index_upper] = facr0 * np.exp(d0 * kRhoIce * depth[index_upper]);
-    q[index_lower] = facrc * np.exp(d1 * kRhoIce* (depth[index_lower] - zc));
-    
-    rho_prof = kRhoIce * (q / (1+q)) ;   
 
     #Time when critical depth is reached
-    tmp = (kRhoIce - rho_surface) / (kRhoIce - kRhoC);
+    
+    tmp = (kRhoIce - Rho0) / (kRhoIce - kRhoC);
     tc = np.log(tmp) / c0;
     
     
     # Steady-state time - water-equivalent depth relation
+    
     t = np.full(len(depth),np.nan) 
     
     tmp = (kRhoIce - rho_surface) / (kRhoIce - rho_prof[index_upper]) 
