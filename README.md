@@ -42,16 +42,28 @@ from vfcdevel.runvfc_v3 import superplot
 superplot(df,ICORDA)
 
 ```
+Pour générer la carotte paleo, simplement utiliser le dataframe paleo en rajoutant une colonne 'tp_adjust' avec l'accu.
+Je mets accu = 25kg, 219K, 320kg/m3 en surface et j'obtiens une profondeur de 84m!
+```
+Tmean =219
+rho = 320
+accu = 25
+dfpaleo['tp'] = accu/12
+dfpaleo['decimalyear'] = list(map(str_to_decimalyear,dfpaleo.index))
+```
+```
+vfc = Profile_gen2(dfpaleo['decimalyear'],Tmean,dfpaleo['tp'],dfpaleo['d18O_inter']+np.nanmean(dficorda['d18O']),rho,res=1e-2)
+vfc = core_sample_adrien(vfc,core_resolution)
+```
 etc...
 
-# NEW! in version 31/07
+# NEW! in version 3/08
 
-truc inutiles; j'ai renomé des fichiers. Normalement j'ai bien fait les changements nécessaires partout
+j'ai renomé des fichiers. Normalement j'ai bien fait les changements nécessaires partout
 - make_pretty_figures.py -> pretty_plot.py (keep file names short :-))
-- psd.py-> spectral_analysis.py (je me dis qu'on pourra rajouter les ondelettes dedans par après)
+- psd.py-> spectralanalysis.py (je me dis qu'on pourra rajouter les ondelettes dedans par après)
 
-- Nouvelle version de Profile_gen dans profilegen_v3
-( et VFC_and_spectra_v2 renomé en VFC_and_spectra dans ce fichier)
+- Nouvelle version de Profile_gen dans profilegen_v3 (VFC_and_spectra_v2 renomé en VFC_and_spectra dans ce fichier)
 how to use:
 ```
 from vfcdevel.profilegen_v3 import Profile_gen,VFC_and_spectra
@@ -95,10 +107,11 @@ et oui, c'est merveilleux... Les autres colonnes du vfc sont ['d18O_raw', 'date'
        'd18O_diff', 'sigma18'] ou j'ai gardé les d18O de chaque étapes, ainsi que le profil de densité heron et langway, la profondeur eu, le sigma18. Ça permettra de faire les vérifications très rapidement en vérifiant les profils de densités et les longeurs de diffusion par exemple. On pourra aussi rajouter super facilement les autres espèces.
 
 
-- Pour le v3, j'ai re-séparé le core_resolution du reste du profile_gen. Mon idée c'est: Profile_gen donne une carotte physique, avec une résolution typiquement milimetrique. Et puis on peut venir derrière appliquer le core_resolution (schéma d'échantillonnage). Je préfère toujours limiter le nombre d'arguments d'une fonction, faire des blocs de fonction qui font chacun une tâche, je trouve ça plus lisible.
+- Pour le v3, j'ai re-séparé le core_resolution du reste du profile_gen. Mon idée c'est: Profile_gen donne une carotte physique, avec une résolution typiquement milimetrique. Et puis on peut venir derrière appliquer le core_resolution (schéma d'échantillonnage). Je préfère toujours limiter le nombre d'arguments d'une fonction, faire des blocs de fonction qui font chacun une tâche, je trouve ça plus lisible. Si tu veux tu peux faire un core_gen (profile_gen_legacy) qui fait profile_gen et puis core_sample dans la foulée. J'ai aussi remarqué que ma première version de bloc average est super lente pour les plus longues carottes. J'ai réécrit un core_sample_adrien qui n'utilise pas bloc_average, et je vais réecrire bloc average avec la même idée. J'ai vérifié que core_sample_emma et core_sample_adrien font exactement le même résultat :)
 ```
 vfc = Profile_gen(...)
-vfc2 = core_sample_emma(vfc,core_resolution)
+#vfc2 = core_sample_emma(vfc,core_resolution)
+vfc2 = core_sample_adrien(vfc,core_resolution)
 plt.plot(vfc['d18O'])
 plt.plot(vfc2['d18O'])
 ```
