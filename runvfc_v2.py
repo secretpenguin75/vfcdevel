@@ -33,6 +33,8 @@ import vfcdevel.logsmooth as lsm
 
 from scipy.interpolate import interp1d
 
+from vfcdevel.utils import block_average_OLD as block_average
+
 
 def core_details(core, df, namecore):
 

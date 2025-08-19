@@ -23,7 +23,8 @@ import vfcdevel.logsmooth as lsm
 
 from scipy.interpolate import interp1d
 
-def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3):
+def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+               storage_diffusion_cm = 0):
     
     # Generates the profile of isotopic composition of a snow column
     #
@@ -90,7 +91,7 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     ## Data preparation
     
     #accu = np.sum(Tp)/((Date[-1]-Date[0])/pd.Timedelta('365.35D')) # Calculation of the accumulation rate in mm.a-1 w.e.)
-    accu = np.sum(Tp)/((Date.iloc[-1]-Date.iloc[0])) # Calculation of the accumulation rate in mm.a-1 w.e.)
+    accu = np.sum(Tp)/((Date.iloc[-1]-Date.iloc[0])) # Calculation of the accumulation rate in mm w.e. a-1, assuming Date is in decimal year)
 
     #Prec = Prec/rho*997/1000 #Conversion to meters and snow equivalent
     #Tp.loc[(Tp<=0)] = 0 #Negative precipitation cannot be taken into account. In the case of true accumulation, where negative values could occur, changes to the script need to be made.
@@ -99,7 +100,8 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
 
     ## Compute precipitation intermittent depth serie  
 
-    depth_raw = np.cumsum(Tp.to_numpy()[::-1])[::-1]/1000  # to meters # ! this is the water equivalent depth in meters !
+    depth_raw = np.cumsum(Tp.to_numpy()[::-1])[::-1] # sum from present assuming Date is from past to present
+    depth_raw = depth_raw/1000  # to meters # ! this is the water equivalent depth in meters !
     #depth_raw -=depth_raw[0]
     #depth_raw_mean = depth_raw[:-1] + np.diff(depth_raw)/2; # middle grid points # I don't use this at the moment
 
@@ -107,9 +109,10 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     
     vfc = pd.DataFrame({'d18O_raw':Precip_d18O.to_numpy(),'date':Date.to_numpy()},index=depth_raw)
     
-    vfc = vfc.sort_index()
+    vfc = vfc.sort_index() # place surface depth = 0 at the begining
 
-    ################################################################## Interpolation to a regular grid ###############################################################
+    ################################################################## Interpolation to a regular grid
+    ###############################################################
 
     # Working on a regular grid in mmwe. This corresponds to uncompacted snow when applying the conversion factor 1000/rho_snow
     # Therefore it is the right depth scale for processes like mixing and white noise which happen on un-compacted snow at the surface
@@ -121,7 +124,8 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     #depthwe_even = np.arange(0,np.max(depth_raw)+reswe,reswe);
     #vfc_even = df_interp(vfc,depthwe_even,kind='next')
     
-    vfc_even = block_average(vfc,reswe)
+    #vfc_even = block_average_TEST(vfc,reswe)
+    vfc_even = block_average_OLD(vfc,reswe)
     depthwe_even = vfc_even.index.to_numpy()
 
     ## Sublimation (removing isotopes, no snow layer thickness change, only density)
@@ -129,7 +133,8 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     ## Frost at the surface
     ## Condensation from the snow below 
     
-    ####################################################################### Generate white noise #####################################################################
+    ####################################################################### Generate white noise
+    #####################################################################
     
     d18O_ini = vfc_even['d18O_raw'].to_numpy()
     
@@ -152,7 +157,8 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
                  kind='previous')
     wn18O = f(np.arange(0,len(vfc_even),1))
 
-    ################################################################# VFC[d18O ini & white noise] (Laepple) ###########################################################
+    ################################################################# VFC[d18O ini & white noise] (Laepple)
+    ###########################################################
 
     #dans le code d'emma, factor est calé sur noise_scale = noise_scale_mm en mm de neige
     #pour reproduire ça, on utilise noise_scale_m*100 = noise_scale_mm/10
@@ -164,14 +170,16 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
 
     vfc_even['d18O_noise'] = d18O_noise_Laepple
 
-    ######################################################################### Mixing ##################################################################################
+    ######################################################################### Mixing
+    ##################################################################################
 
-    mixing_scale_we = mixing_scale_m/1000*rho
-    mixing_scale = int(mixing_scale_we/reswe)
+    mixing_scale_we = mixing_scale_m/1000*rho # convert input mixing scale in snow depth to water equivalent depth
+    mixing_scale = int(mixing_scale_we/reswe) # convert mixing scale to 
     
     vfc_even['d18O_mix'] = vfc_even['d18O_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
     
-    ################################################################# VFC[d18O ini & white noise & Mixing] ############################################################
+    ################################################################# VFC[d18O ini & white noise & Mixing]
+    ############################################################
     
     d18O_mix_noise =  (1.-mixing_level) * vfc_even['d18O_noise'] + mixing_level * vfc_even['d18O_mix']
     
@@ -199,18 +207,31 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     
     vfc_snow_even = df_interp(vfc_even.set_index(depthsnow_real),depthsnow_even)
                                                   
-    ############################################################################ Diffusion ############################################################################
+    ############################################################################ Diffusion
+    ############################################################################
     # we now apply diffusion to the vfc with in even snow depth
     
     rhod = vfc_snow_even['rho'].to_numpy()
     depthHL = vfc_snow_even.index.to_numpy()
     sigma18,sigmaD = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
-    
+
+    #storage_diffusion_cm is an input of profile_gen!!
+    #storage_diffusion_cm = 1.5 #for ICORDA
+    #storage_diffusion_cm = 5.6 #for subglacior
+        
     # #POUR SUGBLACIOR STORAGE = 5 YEARS
     #sigma18_15 = (sigma18_19**(2) + 5.6**(2))**(1/2)
     #sigma18 = sigma18_15
     
     vfc_snow_even['d18O_diff'] = fm.Diffuse_record_OLD(vfc_snow_even['d18O'],sigma18/100,res)[0];
+
+    if storage_diffusion_cm>0:
+        sigma18_storage = (sigma18**(2) + storage_diffusion_cm**(2))**(1/2)   #d'après Dallmayre et al. (2024)
+        vfc_snow_even['d18O_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even['d18O'],sigma18_storage/100,res)[0];
+        vfc_snow_even['sigma18_stored'] = sigma18_storage/100
+
+
+
     vfc_snow_even['sigma18'] = sigma18/100
 
     # format of old output
@@ -277,3 +298,6 @@ def VFC_and_spectra(df, core_resolution, noise_level, mixing_level, mixing_scale
     spectra = pd.concat([spectrum, spectrum_sm, spectra_10freq_diff, spectra_10psd_diff, spectrum_diff_mean_sm], axis=1)
       
     return VFC, spectra
+
+
+

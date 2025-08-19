@@ -23,6 +23,8 @@ import vfcdevel.logsmooth as lsm
 
 from vfcdevel.isotopes import temp_to_iso_DC
 
+from vfcdevel.utils import block_average_OLD3 as block_average
+
 from scipy.interpolate import interp1d
 
 
@@ -125,7 +127,7 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
 
     #### test with block average
     dfi = pd.DataFrame({'d18O_ini':d18O_raw},index=depth_raw)
-    df = block_average(dfi,step)
+    df = block_average_OLD(dfi,step)
     depth_even = df.index.to_numpy()
     df['depth_even'] = depth_even
 

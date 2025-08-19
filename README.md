@@ -126,3 +126,45 @@ etc...
 Ça sera utile pour faire la carotte de 80m en cm au lieu de mm pour faire tourner le code un peu plus vite.
 
 - J'ai homogénéisé un peu partout les noms des entrées et l'ordre dans lequel elle apparaissent: noise_level, mixing_level mixing_scale_m, noise_scale_m, . Ce serait bien on essaye de garder les mêmes noms partout.
+
+
+# NEW!! August 19th
+
+- Pour utiliser les wavelets
+```
+from vfcdevel.spectralanalysis import wavelets_adrien
+```
+
+```
+vfc = Profile_gen2(dfpaleo['decimalyear'],Tmean,dfpaleo['tp'],dfpaleo['d18O_inter']+np.nanmean(dficorda['d18O']),rho,res=1e-3)
+vfc = core_sample_adrien(vfc,core_resolution)
+vfc2 = df_interp(vfc,np.arange(min(vfc.index),max(vfc.index),0.01))
+```
+et puis
+```
+frequencies,coefficients = wavelets_adrien(vfc2['d18O'])
+fig,ax = plt.subplots()
+plt.pcolormesh(vfc2.index.values,frequencies,np.abs(coefficients),vmin=0,vmax=5,rasterized=True)
+plt.gca().set_yscale('log')
+```
+La fonction que tu m'a envoyée est aussi disponible pour comparer, avec
+```
+from vfcdevel.spectralanalysis import wavelets_adrien
+
+wavelets_fft_spectra(vfc2,'ICORDA')
+
+```
+Je pense que l'axe y n'est pas correcte dans cette version, voir
+```
+wavelets_fft_spectra(vfc2,'ICORDA',newversion=True)
+
+```
+
+
+- J'ai rajouter le storage diffusion avec
+```
+vfc = Profile_gen2(dfpaleo['decimalyear'],Tmean,dfpaleo['tp'],dfpaleo['d18O_inter']+np.nanmean(dficorda['d18O']),rho,res=1e-3,storage_diffusion_cm = 1.5)
+```
+vfc aura deux colonnes en plus avec 'd18O_diff2' qui rajoute la diffusion du stockage et 'sigma18_storage'. Ça a l'air de faire aucune différence pour icorda. En fait ça change à peine seulement dans le premier 1 mètre.
+
+_to be continued..._
