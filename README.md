@@ -161,7 +161,7 @@ wavelets_fft_spectra(vfc2,'ICORDA',newversion=True)
 ```
 
 
-- J'ai rajouter le storage diffusion avec
+- J'ai rajouté le storage diffusion avec
 ```
 vfc = Profile_gen2(dfpaleo['decimalyear'],Tmean,dfpaleo['tp'],dfpaleo['d18O_inter']+np.nanmean(dficorda['d18O']),rho,res=1e-3,storage_diffusion_cm = 1.5)
 ```
