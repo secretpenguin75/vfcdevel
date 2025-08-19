@@ -149,7 +149,7 @@ plt.gca().set_yscale('log')
 ```
 La fonction que tu m'a envoyée est aussi disponible pour comparer, avec
 ```
-from vfcdevel.spectralanalysis import wavelets_adrien
+from vfcdevel.spectralanalysis import wavelets_fft_spectra
 
 wavelets_fft_spectra(vfc2,'ICORDA')
 
