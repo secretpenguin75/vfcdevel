@@ -18,16 +18,14 @@ import matplotlib as mpl
 # custom libraries
 import vfcdevel.forwardmodel as fm
 from vfcdevel.utils import *
-from vfcdevel.psd import mtm_psd
+from vfcdevel.spectralanalysis import mtm_psd
 import vfcdevel.logsmooth as lsm
 
+from vfcdevel.isotopes import temp_to_iso_DC
+
+from vfcdevel.utils import block_average_OLD3 as block_average
+
 from scipy.interpolate import interp1d
-
-
-def temp_to_d18O_DC(Temp): # in Kelvin
-    #Definition of the isotopic composition - temperature relationship
-    alpha = 0.46; beta = -32;
-    return alpha*(Temp-273.15)+beta
 
 
 def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_mm = 40, noise_scale_mm = 10):
@@ -100,7 +98,8 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     date_raw = Date.to_numpy()
     if Precip_d18O is None:
         # if d18O is not provided; compute from temperature
-        d18O_raw = temp_to_d18O_DC(Temp).to_numpy()
+        #d18O_raw = temp_to_d18O_DC(Temp).to_numpy()
+        temp_to_iso_DC(Temp,'18O',fit='Mathieu').to_numpy()
     else:
         #else, just copy the input d18O
         d18O_raw = Precip_d18O.to_numpy()
@@ -117,11 +116,23 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     ################################################################## Interpolation to a regular grid ###############################################################
     step = 0.001; # grid of 1mm
     Depth_tot = depth_raw[0]
+    
     depth_even = np.arange(step,Depth_tot-step,step);
+
     d18O_ini = np.interp(depth_even,depth_raw[::-1],d18O_raw[::-1]); # invert depth_raw to be increasing
     date_even = float_time_interp(depth_even,depth_raw[::-1],Date[::-1]) # date even is now decreasing
     
-    df = pd.DataFrame({'depth_even': depth_even, 'd18O_ini': d18O_ini})    
+    df = pd.DataFrame({'depth_even': depth_even, 'd18O_ini': d18O_ini}) 
+
+
+    #### test with block average
+    dfi = pd.DataFrame({'d18O_ini':d18O_raw},index=depth_raw)
+    df = block_average_OLD(dfi,step)
+    depth_even = df.index.to_numpy()
+    df['depth_even'] = depth_even
+
+    d18O_ini = df['d18O_ini']
+    date_even = float_time_interp(depth_even,depth_raw[::-1],Date[::-1])
     
     ####################################################################### Generate white noise #####################################################################
     sig_d18O = np.nanstd(d18O_ini); #d18O_int
@@ -137,16 +148,25 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     wn18O[ind]= np.random.randn()
   
     ################################################################# VFC[d18O ini & white noise] (Laepple) ###########################################################
-    factor = 1/np.sqrt(noise_scale/10)
-    d18O_noise_Laepple = np.sqrt(1 - noise_level)*d18O_ini + np.sqrt(noise_level)*factor*sig_d18O*wn18O
+
+    # I comment this factor for now
+    #factor = 1/np.sqrt(noise_scale/10)
+    factor = 1
+    d18O_noise_Laepple = np.sqrt(1. - noise_level)*d18O_ini + np.sqrt(noise_level)*factor*sig_d18O*wn18O
+
     
     ######################################################################### Mixing ##################################################################################
+    # mixing is implemented as a rolling window with width given by the mixing_scale in mm snow
+    # rolling window is centered (value can be influenced by the snow coming before and after)
+    # min_periods = 1 so the more recent snow will only be mixed with the snow underneath it (otherwise we would get nan values at the top which is wrong)
+    # (technically we should write min_periods = int(mixing_scale_mm/res/2))
+    
     df = pd.DataFrame({'depth_even': depth_even, 'd18O_noise': d18O_noise_Laepple})
-    df['d18O_rolling_avg'] = df['d18O_noise'].rolling(window=mixing_scale_mm, center=True).mean()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
+    df['d18O_rolling_avg'] = df['d18O_noise'].rolling(window=mixing_scale_mm, center=True,min_periods=1).mean()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
     d18O_mix = df['d18O_rolling_avg']
     
     ################################################################# VFC[d18O ini & white noise & Mixing] ############################################################
-    d18O_mix_noise =  (1-mixing_level) * d18O_noise_Laepple + mixing_level * d18O_mix
+    d18O_mix_noise =  (1.-mixing_level) * d18O_noise_Laepple + mixing_level * d18O_mix
     
     #################################################################### Restore initial mean #################################################################
     d18O_even = d18O_mix_noise
@@ -161,17 +181,27 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     depthwe = depth/1000*320 #conversion depth snow non tassee -> en we
     
     depthdummysnow = np.arange(0,1000/320*np.max(depthwe),0.001) #on prepare une profil de la bonne taille entre snow et we
-    depthdummywe,rhod =  fm.DensityHL(depthdummysnow,rho,Tmean,accu); #on calcule HL et la profondeur en we
+    depthdummywe,rhoddummy =  fm.DensityHL(depthdummysnow,rho,Tmean,accu); #on calcule HL et la profondeur en we
     depthHL = np.interp(depthwe,depthdummywe,depthdummysnow) #conversion we -> en snow equiv
-    
+    rhod = np.interp(depthwe,depthdummywe,rhoddummy)
+
     sigma18,sigmaD = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
     
     # #POUR SUGBLACIOR STORAGE = 5 YEARS
     #sigma18_15 = (sigma18_19**(2) + 5.6**(2))**(1/2)
     #sigma18 = sigma18_15
+
+    # just added the bit of code Emma sent me by mail
+    #d18O_diff = fm.Diffuse_record_OLD(d18O,sigma18/100,step)[0];
+
     
-    d18O_diff = fm.Diffuse_record_OLD(d18O,sigma18/100,step)[0];
- 
+    depthHL_regular = np.arange(0,np.max(depthHL),1e-3)
+    d18O_regularHL = np.interp(depthHL_regular,depthHL,d18O)
+    sigma18_regularHL = np.interp(depthHL_regular,depthHL,sigma18)
+    d18O_diff_regularHL = fm.Diffuse_record_OLD(d18O_regularHL,sigma18_regularHL/100,step)[0];
+
+    d18O_diff = np.interp(depthHL,depthHL_regular,d18O_diff_regularHL)
+
     #block average
     df = pd.DataFrame({'d18O':d18O_even,'d18O_diff':d18O_diff,'date':pd.DatetimeIndex(date_even)}).set_index(depthHL)
     df = df.set_index (df.index + np.diff(df.index)[-1]/2)
