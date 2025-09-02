@@ -31,8 +31,10 @@ def smoothlog(x,f,dflog):
     return x_out
 
 def smoothlogCE(x,f,dflog,dof):
+    
     x_out = np.full(len(f),np.nan);
     dof_out = np.full(len(f),np.nan);
+    
     for j in range(len(f)):
         w =  fweights(f[j],f,dflog);
         DistanceSlowEnd = j;

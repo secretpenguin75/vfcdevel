@@ -14,10 +14,11 @@ import copy
 import matplotlib as mpl
 
 # custom libraries
+
 import vfcdevel.forwardmodel as fm
 from vfcdevel.utils import *
 
-def Profile_gen(Date,Tp,Iso,Temp,rho, noise_scale_we = 20 ,noise_level = 0.8):
+def Profile_gen(Date,Tp,Temp,Iso,rho,noise_scale_we = 20 ,noise_level = 0.0):
         
     #Generates the profile of isotopic composition of a snow column
 
@@ -36,19 +37,20 @@ def Profile_gen(Date,Tp,Iso,Temp,rho, noise_scale_we = 20 ,noise_level = 0.8):
 
     print(accu)
 
-
-    Tp.loc[(Tp<=0)] = 0 #Negative precipitation cannot be taken into account.
+    Tp0 = copy.deepcopy(Tp)
+    Tp0.loc[(Tp<=0)] = 0 #Negative precipitation cannot be taken into account.
                                    #In the case of true accumulation, where negative 
                                     #values could occur, changes to the script need to be made.
+
+    tp_raw = Tp0.to_numpy()
     
     ## Compute precipitation intermittent depth serie
 
-    depthwe_raw = np.cumsum((Tp.to_numpy())[::-1])[::-1] # sum from the surface
-    depthwe_raw *=1/1000 # conversion from mm to meters
+    depthwe_raw = np.cumsum((tp_raw)[::-1])[::-1] # sum from the surface
+    depthwe_raw *= 1/1000 # conversion from mm to meters
     depthwe_raw = depthwe_raw - depthwe_raw[-1] # set surface depth to zero
 
     iso_raw = Iso.to_numpy()
-
     date_raw = Date.to_numpy()
     
     #temp_raw = Temp.to_numpy()
@@ -67,37 +69,40 @@ def Profile_gen(Date,Tp,Iso,Temp,rho, noise_scale_we = 20 ,noise_level = 0.8):
     # Condensation from the snow below
 
     ## Interpolation to a regular grid
+    
     res = 1e-3; #in meters, so mm resolution, for large accumulation or very long time series, this can lead to large variables.
     
-    maxdepth = depthwe_raw[0]
-    depthwe_even = np.arange(0,maxdepth,res);
-    iso_even = np.interp(depthwe_even,depthwe_raw[::-1],iso_raw[::-1]);
-    #Dating = np.interp(depth,depth_raw_mean,datenum(date_raw));
-    #date_even = float_time_interp(depthwe_even,depthwe_raw[::-1],Date[::-1])
-
+    maxdepthwe = depthwe_raw[0]
+    
+    depthwe_even = np.arange(0,maxdepthwe,res)
+    iso_even = np.interp(depthwe_even,depthwe_raw[::-1],iso_raw[::-1])
     date_even = np.interp(depthwe_even,depthwe_raw[::-1],date_raw[::-1])
-    #temp_even = np.interp(depth_even,depth_raw[::-1],temp_raw[::-1])
+    #tempwe_even = np.interp(depthwe_even,depth_raw[::-1],temp_raw[::-1])
     
 
     ## Generating a white noise
     ## Here we work in mmwe depth, by simply scaling mixing and noise windows with density
     ## this is justified by the fact that there is no compression in the upper layers
-    
-    std_iso = np.nanstd(iso_even);
-    mean_iso = np.nanmean(iso_even);
 
-    wn_iso = np.full(iso_even.shape,np.nan)
-
-    noise_scale = int(noise_scale_we/1000/res) # compute noise scale from mmwe to resolution unit
+    if noise_level>0:
+        
+        std_iso = np.nanstd(isowe_even);
+        mean_iso = np.nanmean(isowe_even);
     
-    for i in range(len(iso_even)//noise_scale):
-        # same wn value for per block of noise scale, right?
-        wn_iso[noise_scale*i:noise_scale*(i+1)] = np.random.normal(0,1)
-    wn_iso[noise_scale*(i+1):] = np.random.normal(0,1)
-
-    iso_even = ((1 - noise_level))**(1/2)*iso_even + (noise_level)**(1/2)*std_iso*wn_iso; # std of iso_even is conserved with this formula (std_1+2 = sqrt( std1**2+std2**2)
+        wn_iso = np.full(iso_even.shape,np.nan)
     
-    iso_even = iso_even -np.nanmean(iso_even) + mean_iso; # restore initial mean
+        noise_scale = int(noise_scale_we/1000/res) # compute noise scale from mmwe to resolution unit
+        
+        for i in range(len(iso_even)//noise_scale):
+            # same wn value for per block of noise scale, right?
+            wn_iso[noise_scale*i:noise_scale*(i+1)] = np.random.normal(0,1)
+            
+        wn_iso[noise_scale*(i+1):] = np.random.normal(0,1)
+    
+        iso_even = ((1 - noise_level))**(1/2)*iso_even + (noise_level)**(1/2)*std_iso*wn_iso; 
+        # std of iso_even is conserved with this formula (std_1+2 = sqrt( std1**2+std2**2)
+        
+        iso_even = iso_even - np.nanmean(iso_even) + mean_iso; # restore initial mean
 
 
     ## SNOW MIXING
@@ -106,25 +111,47 @@ def Profile_gen(Date,Tp,Iso,Temp,rho, noise_scale_we = 20 ,noise_level = 0.8):
 
     ## DIFFUSION
 
+    ## Diffusion will act on a snow depth profile
+    ## Time to compute snow depth with model for compaction
+
     
     Tmean = np.mean(Temp)
-    
-    depthsnow0 = depthwe_even*1000/rho #this uncompacted snow depth will overshoot the actual depth of the core
-    
-    depthwe0,rhod0 =  fm.DensityHL(depthsnow0,rho,Tmean,accu); #on calcule Herron and Langway et la profondeur en we
 
-    #depthHL is the snow depth of the original mmwe scale according to the Herron and Langway model
+    # densityHL function works in snow depth
+    # this uncompacted snow depth will overshoot the actual depth of the core
     
-    depthHL = np.interp(depthwe_even,depthwe0,depthsnow0) #conversion wwater equiv. -> en snow equiv.
-    rhod = np.interp(depthwe_even,depthwe0,rhod0)
+    depthsnow0 = depthwe_even*1000/rho
+    
+    depthwe0,rhod0 =  fm.DensityHL(depthsnow0,rho,Tmean,accu); # Herron Langway model gives the density profile on snow depth
 
     Pressure = 650 # Pressure at Dome C, to be relaxed as a free parameter later on
-    sigma18,sigmaD = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,Pressure,accu);
-    sigma18_e = sigma18/100/res# sigma18 is in cm, we must restore to meters and then to resolution
-    iso_even_diff = fm.Diffuse_record(iso_even,sigma18_e); 
+    
+    sigma18,sigmaD = fm.Diffusionlength_OLD(depthsnow0,rhod0,Tmean,Pressure,accu);
+
+    sigma18_even = np.interp(depthwe_even,depthwe0,sigma18) # interpolate on the even we grid
+
+    
+    # Now we have to interpolate to diffuse in a regular snow grid
+    
+    maxdepthsnow = np.interp(depthwe_even,depthwe0,depthsnow0)[-1]
+    
+    depthsnow_even = np.interp(depthwe_even,depthwe0,depthsnow0)
+    rhod_even = np.interp(depthwe_even,depthwe0,rhod0)
+
+    depthsnow_evensnow = np.arange(0,np.max(depthsnow_even),res)
+    iso_evensnow = np.interp(depthsnow_evensnow,depthsnow_even,iso_even)
+    sigma18_evensnow = np.interp(depthsnow_evensnow,depthsnow_even,sigma18_even)
+    
+    #tempsnow_even = np.interp(depthwe_even,depth_raw[::-1],temp_raw[::-1])
+
+    sigma18_e = sigma18_evensnow/100/res# sigma18 is in cm, we must restore to meters and then to resolution
+    
+    iso_evensnow_diff = fm.Diffuse_record(iso_evensnow,sigma18_e); 
+
+    iso_even_diff = np.interp(depthsnow_even,depthsnow_evensnow,iso_evensnow_diff)
 
 
-    return depthHL,depthwe_even,rhod,iso_even,iso_even_diff,date_even,sigma18
+    return depthsnow_even,depthwe_even,rhod_even,iso_even,iso_even_diff,date_even,sigma18_even
 
 def Profile_gen_legacy(Date,Prec,Iso,Temp,rho,noise_scale = 20,noise_level = 0.8,sampling_res=0.015):
 
@@ -182,11 +209,11 @@ def Profile_gen_legacy(Date,Prec,Iso,Temp,rho,noise_scale = 20,noise_level = 0.8
     
     # generate core
     
-    depth,depthwe,rhod,iso,iso_diff,date = Profile_gen(Date,Prec,Iso,Temp,rho,noise_scale,noise_level)
+    depthsnow_even,depthwe_even,rhod_even,iso_even,iso_even_diff,date_even,sigma18_even = Profile_gen(Date,Prec,Iso,Temp,rho,noise_scale,noise_level)
 
     # block average at sampling_res resolution
 
-    df = pd.DataFrame({'iso':iso,'iso_diff':iso_diff,'date':pd.DatetimeIndex(date)}).set_index(depth)
+    df = pd.DataFrame({'iso':iso_even,'iso_diff':iso_even_diff,'date':date_even}).set_index(depthsnow_even)
     df_int = block_average(df,sampling_res) # block average at 1cm resolution
     #df_int = block_average(df,sampling_res) # block average at 3cm resolution
 
