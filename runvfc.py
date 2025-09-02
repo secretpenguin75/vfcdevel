@@ -32,20 +32,22 @@ from scipy.interpolate import interp1d
 
 from vfcdevel.make_pretty_figures import *
 
-def core_details(core, df, namecore):
+def core_details(core, namecore):
 
     if namecore=='ICORDA':
+        storage_diffusion_cm = 1.5
         label_core = 'ICORDA LDC'
         c_core = 'orchid'
         c_core_sm = 'purple'
-        core_resolution = [[0, 1.939, 0.033], [1.939, 2.872, 0.040], [2.872, len(df), 0.0003]] # [z, z+dz, resol]
+        core_resolution = [[0, 1.939, 0.033], [1.939, 2.872, 0.040], [2.872, len(core), 0.0003]] # [z, z+dz, resol]
         grid = np.mean([0.033, 0.040])
         
     if namecore== 'subglacior':
+        storage_diffusion_cm = 5.6
         label_core = 'Subglacior LDC'
         c_core = 'limegreen' 
         c_core_sm = 'forestgreen'
-        core_resolution = [[0, 1., 0.040], [1., 2., 0.038], [2., 3., 0.053], [3., len(df), 0.036]]
+        core_resolution = [[0, 1., 0.040], [1., 2., 0.038], [2., 3., 0.053], [3., len(core), 0.036]]
         grid = np.mean([0.040, 0.038, 0.053, 0.036])
         
     #core regular
@@ -53,16 +55,16 @@ def core_details(core, df, namecore):
     interp_d18O = interp1d(core['Depth(m)'], core['d18O'], kind='linear') 
     core_regular = pd.DataFrame({'Depth(m)': core_depth_regular,'d18O': interp_d18O(core_depth_regular)})
     
-    return core_resolution, core_regular, grid, label_core, c_core, c_core_sm
+    return core_resolution, core_regular, storage_diffusion_cm, grid, label_core, c_core, c_core_sm
 
 def superplot(MODELDATA,OBSDATA, NAMECORE, NOISESCALE_MM=10, MIXINGSCALE_MM=40):
     
     # CORE
-    core_resolution, core_regular, grid, label_core, c_core, c_core_sm = core_details(OBSDATA, MODELDATA, NAMECORE)
+    core_resolution, core_regular, storage_diffusion_cm, grid, label_core, c_core, c_core_sm = core_details(OBSDATA, NAMECORE)
     
     freq_core,psd_core = mtm_psd(core_regular.d18O.dropna(),1/grid)
     psd_core_sm,freq_core_sm= lsm.logsmooth(psd_core,freq_core,0.05)[:2]    
-
+    
     # RUN VFC: % mixing level % noise level
     
     c_VFC_no_diff = 'lavender' 
@@ -71,14 +73,16 @@ def superplot(MODELDATA,OBSDATA, NAMECORE, NOISESCALE_MM=10, MIXINGSCALE_MM=40):
     c_VFC_diff_sm = 'cadetblue'
     
     # Raw signal (0% noise, 0% mixing)
-    VFC_nl0_ml0, spectra_nl0_ml0 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=0, regular_grid=grid)
-    # # Noise level 0/20/40/60/80/100% (Mixing level 100%)
-    VFC_nl0_ml100, spectra_nl0_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=1.0, regular_grid=grid)
-    VFC_nl20_ml100, spectra_nl20_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.2, ml=1.0, regular_grid=grid)
-    VFC_nl40_ml100, spectra_nl40_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.4, ml=1.0, regular_grid=grid)
-    VFC_nl60_ml100, spectra_nl60_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.6, ml=1.0, regular_grid=grid)
-    VFC_nl80_ml100, spectra_nl80_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.8, ml=1.0, regular_grid=grid)
-    VFC_nl100_ml100, spectra_nl100_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=1.0, ml=1.0, regular_grid=grid)
+    VFC_nl0_ml0, spectra_nl0_ml0 =  VFC_and_spectra_v2(MODELDATA, core_resolution, storage_diffusion_cm, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=0, regular_grid=grid)
+    
+    
+    # # # Noise level 0/20/40/60/80/100% (Mixing level 100%)
+    # VFC_nl0_ml100, spectra_nl0_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, storage_diffusion_cm, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=1.0, regular_grid=grid)
+    # VFC_nl20_ml100, spectra_nl20_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, storage_diffusion_cm, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.2, ml=1.0, regular_grid=grid)
+    # VFC_nl40_ml100, spectra_nl40_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, storage_diffusion_cm, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.4, ml=1.0, regular_grid=grid)
+    # VFC_nl60_ml100, spectra_nl60_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, storage_diffusion_cm, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.6, ml=1.0, regular_grid=grid)
+    # VFC_nl80_ml100, spectra_nl80_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, storage_diffusion_cm, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.8, ml=1.0, regular_grid=grid)
+    # VFC_nl100_ml100, spectra_nl100_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, storage_diffusion_cm, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=1.0, ml=1.0, regular_grid=grid)
 
     
     # FIGURE VFC RAW 0% NOISE 0% MIXING
@@ -109,7 +113,7 @@ def superplot(MODELDATA,OBSDATA, NAMECORE, NOISESCALE_MM=10, MIXINGSCALE_MM=40):
     ax1.set_yscale('log')
     plt.title("Noise level = 0%, Mixing level = 0%", fontsize=15)
 
-     
+    STOP
     # FIGURE NOISE EFFECT
     
     plt.figure(figsize=(25, 12))

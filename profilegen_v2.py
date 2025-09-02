@@ -30,7 +30,7 @@ def temp_to_d18O_DC(Temp): # in Kelvin
     return alpha*(Temp-273.15)+beta
 
 
-def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_mm = 40, noise_scale_mm = 10):
+def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, storage_diffusion_cm, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_mm = 40, noise_scale_mm = 10):
     
     # Generates the profile of isotopic composition of a snow column
     #
@@ -85,6 +85,7 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     if not Precip_d18O is None: Precip_d18O = Precip_d18O.loc[keep]
     
     
+    
     #Generates the profile of isotopic composition of a snow column
     # <!> generates profile at the mm resolution, no block average (see profile_gen_legacy)
     ddays = np.diff(Date).astype('timedelta64[D]').astype(int) # convert to number of days, and we will assume precip is in units of per days
@@ -107,7 +108,7 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
         
     depth_raw = np.cumsum(Prec.to_numpy()[::-1]*ddays)[::-1]  # to meters
     #depth_raw_mean = depth_raw[:-1] + np.diff(depth_raw)/2; # middle grid points # I don't use this at the moment
-
+    
 
     ## Sublimation (removing isotopes, no snow layer thickness change, only density)
     ## Condensation from the atmosphere
@@ -135,7 +136,7 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
         wn18O[noise_scale * i : noise_scale * (i + 1)] = np.random.randn()
     ind = np.argwhere(np.isnan(wn18O))
     wn18O[ind]= np.random.randn()
-  
+    
     ################################################################# VFC[d18O ini & white noise] (Laepple) ###########################################################
     factor = 1/np.sqrt(noise_scale/10)
     d18O_noise_Laepple = np.sqrt(1 - noise_level)*d18O_ini + np.sqrt(noise_level)*factor*sig_d18O*wn18O
@@ -151,7 +152,7 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     #################################################################### Restore initial mean #################################################################
     d18O_even = d18O_mix_noise
     d18O_even = d18O_even -np.nanmean(d18O_even) + m_d18O;
-                                                  
+    
     ############################################################################ Diffusion ############################################################################
     d18O = d18O_even
     depth = depth_even
@@ -165,15 +166,19 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     depthHL = np.interp(depthwe,depthdummywe,depthdummysnow) #conversion we -> en snow equiv
     
     sigma18,sigmaD = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
+    sigma18_storage = (sigma18**(2) + storage_diffusion_cm**(2))**(1/2)   #d'après Dallmayre et al. (2024)
     
-    # #POUR SUGBLACIOR STORAGE = 5 YEARS
-    #sigma18_15 = (sigma18_19**(2) + 5.6**(2))**(1/2)
-    #sigma18 = sigma18_15
+    depthHL_regular = np.arange(0,np.max(depthHL),0.001)
+    #date_regularHL = np.interp(depthHL_regular, depth_even, date_even)   #pas réussi a régler bug sur date quand je fais ça encore
+    d18O_regularHL = np.interp(depthHL_regular, depthHL, d18O)
+    sigma18_storage_regularHL = np.interp(depthHL_regular, depthHL, sigma18_storage)
+        
+    d18O_diff_regularHL = fm.Diffuse_record_OLD(d18O_regularHL,sigma18_storage_regularHL/100,step)[0]  # Rappel: step = 0.001 (grid of 1 mm)
     
-    d18O_diff = fm.Diffuse_record_OLD(d18O,sigma18/100,step)[0];
- 
+    
     #block average
-    df = pd.DataFrame({'d18O':d18O_even,'d18O_diff':d18O_diff,'date':pd.DatetimeIndex(date_even)}).set_index(depthHL)
+    #df = pd.DataFrame({'d18O':d18O_even,'d18O_diff':d18O_diff,'date':pd.DatetimeIndex(date_even)}).set_index(depthHL)
+    df = pd.DataFrame({'d18O':d18O_regularHL,'d18O_diff':d18O_diff_regularHL}).set_index(depthHL_regular)   #avec les regular, et sans le Date
     df = df.set_index (df.index + np.diff(df.index)[-1]/2)
     #df_int = block_average(df,.01) # block average at 1cm resolution  
     
@@ -181,24 +186,26 @@ def Profile_gen(Date,Temp,Prec,Precip_d18O, c_resolution, rho, mixing_level=0.1,
     for i in range(len(c_resolution)):
         df_int_i = block_average(df[(df.index >= c_resolution[i][0]) & (df.index < c_resolution[i][1])],c_resolution[i][2])
         df_int_list.append(df_int_i)
-    df_int = pd.concat(df_int_list)       
+    df_int = pd.concat(df_int_list)  
           
     depth_int = df_int.index
     d18O_int = df_int['d18O']
-    d18O_diff_int = df_int['d18O_diff']
-    date_int = df_int['date']
+    d18O_diff_int = df_int['d18O_diff']    #NaN
+    #date_int = df_int['date']
 
-    return depth_int,d18O_int,d18O_diff_int,date_int
+    return depth_int,d18O_int,d18O_diff_int #,date_int
 
 
 
-def VFC_and_spectra_v2(df, core_resolution, mix_scale, noise_scale, nl, ml, regular_grid):
+def VFC_and_spectra_v2(df, core_resolution, storage_diffusion_cm, mix_scale, noise_scale, nl, ml, regular_grid):
     
     spectra_10freq_diff = pd.DataFrame() ; spectra_10psd_diff = pd.DataFrame()
     
     for i_df in range(1,11):
         # VFC
-        depth_int, d18O_int, d18O_diff_int, Date_int_nl0_mv0  = Profile_gen(df.index,df['tsol'],df['precip_adjust']*24*3600,df['precipd18O'], core_resolution, 320, mixing_scale_mm = mix_scale, noise_scale_mm = noise_scale, noise_level=nl, mixing_level=ml)
+        #depth_int, d18O_int, d18O_diff_int, Date_int_nl0_mv0  = Profile_gen(df.index,df['tsol'],df['precip_adjust']*24*3600,df['precipd18O'], core_resolution, 320, mixing_scale_mm = mix_scale, noise_scale_mm = noise_scale, noise_level=nl, mixing_level=ml)
+        depth_int, d18O_int, d18O_diff_int  = Profile_gen(df.index,df['tsol'],df['precip_adjust']*24*3600,df['precipd18O'], core_resolution, storage_diffusion_cm, 320, mixing_scale_mm = mix_scale, noise_scale_mm = noise_scale, noise_level=nl, mixing_level=ml)  #sans le Date
+        
         VFC_d18O = pd.DataFrame({'Depth(m)': depth_int, 'd18O no diff': d18O_int, 'd18O diff': d18O_diff_int})
         
         # Interpolate VFC data on a regular grid
@@ -211,6 +218,7 @@ def VFC_and_spectra_v2(df, core_resolution, mix_scale, noise_scale, nl, ml, regu
         # Spectrum
         freq, psd = mtm_psd(VFC_d18O_interp['d18O no diff'].dropna(),g)
         spectrum = pd.DataFrame({'freq': freq, 'psd': psd})
+        
         freq_diff, psd_diff = mtm_psd(VFC_d18O_interp['d18O diff'].dropna(),g)
         spectrum_diff = pd.DataFrame({'freq_diff': freq_diff, 'psd_diff': psd_diff})
         
@@ -230,5 +238,5 @@ def VFC_and_spectra_v2(df, core_resolution, mix_scale, noise_scale, nl, ml, regu
     
     # Merge
     spectra = pd.concat([spectrum, spectrum_sm, spectra_10freq_diff, spectra_10psd_diff, spectrum_diff_mean_sm], axis=1)
-      
+    
     return VFC_d18O, spectra
