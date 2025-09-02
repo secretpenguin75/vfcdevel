@@ -23,7 +23,7 @@ import vfcdevel.logsmooth as lsm
 
 from scipy.interpolate import interp1d
 
-def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0., noise_level=0., mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
                storage_diffusion_cm = 0):
     
     # Generates the profile of isotopic composition of a snow column
