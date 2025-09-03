@@ -173,7 +173,7 @@ On peut maintenant gérer dexc et d18O en parralèle avec
 Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df[['tsol_dexc','tsol_d18O']],320, mixing_level=0., noise_level=0.,storage_diffusion_cm = 3)
 ```
 (NB: les doubles [[ ]] dans la quatrième entrée. L'espèce est assignée automatiquement à d18O ou dexc (ou dD) en fonction de l'intitulé de la colonne. Le choix est printed pour vérification par l'utilisateur)
-Par conséquent, storage diffusion désormais être un entier (même diffusion sur les deux espèces d18O et dD) ou un dictionnaire de la forme ```{'d18O':sigma18_storage_cm,'dD':sigmaD_storage}```.
+Par conséquent, storage diffusion désormais être un entier (même diffusion sur les deux espèces d18O et dD) ou un dictionnaire de la forme ```{'d18O':sigma18_storage_cm,'dD':sigmaD_storage_cm}```.
 
 Tout est backward compatible avec une seule espèce, on peut donc aussi bien faire
 ```

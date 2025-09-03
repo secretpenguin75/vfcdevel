@@ -138,7 +138,7 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
     species = list(species.values())
 
     # handle the case when storage diffusion cm is an integer
-    if type(storage_diffusion_cm) == int:
+    if type(storage_diffusion_cm) in [int,float]:
         storage_diffusion_cm = {spec:storage_diffusion_cm for spec in ['d18O','dD']}
     
     vfc = pd.DataFrame({'date':Date.to_numpy()} | proxies_dic ,index=depth_raw)
