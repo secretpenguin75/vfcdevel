@@ -13,15 +13,23 @@ def band_mask(n,dmin,dmax):
 ##################################################
 # stuff that has to do with averaging depth arrays
 
-def core_sample_adrien(df,c_resolution):
+def core_sample_adrien(df_in,c_resolution,res = None):
 
-    samplingscheme = np.concatenate([np.arange(c[0],c[1]-c[2],c[2]) for c in c_resolution]) # generate sampling scheme fore core resolution
+    df = copy.deepcopy(df_in)
+    samplingscheme = np.concatenate([np.arange(c[0],c[1]-c[2],c[2]) for c in c_resolution]) # convert c_resolution to sampling scheme = depth axis
     
     ind = np.digitize(df.index,samplingscheme,right=False)-1 # put depth array values into bins of the sampling scheme
     depth = np.unique(samplingscheme[ind])
+    
     df['ind'] = ind
+    
     out = df.groupby(df['ind']).mean()
     out = out.set_index(samplingscheme[out.index.to_numpy()])
+
+    if not res is None:
+        # lets you recover an even dataframe if this is what you prefer
+        # if res is none, just returns the z-axis of the sampling
+        out = df_interp(out,np.arange(min(out.index),max(out.index),res),kind='previous')
     
     return out
 
@@ -61,7 +69,7 @@ def df_interp(df,newindex,kind='linear'):
     array = np.array(df)
     oldindex = df.index.to_numpy()
     
-    array2 = array_interp(newindex,oldindex,array)
+    array2 = array_interp(newindex,oldindex,array,kind)
 
     df2 = pd.DataFrame(array2,index = newindex,columns = df.columns)
 
@@ -213,32 +221,52 @@ def df_interp_notinuse(df,newindex):
 # everything that has to do with time arrays
 
 
-def decimalyear_to_str(decimal_year):
+def decimalyear_to_datetime(decimalyear):
+
+    # from decimalyear (float) to datetime.datetime object
     
-    year = int(decimal_year)
-    remainder = decimal_year - year
+    year = int(decimalyear)
     
     if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
         days_in_year = 366
-        days_in_months = np.array([31,29,31,30,31,30,31,31,30,31,30,31])
-
     else:
         days_in_year = 365
-        days_in_months = np.array([31,28,31,30,31,30,31,31,30,31,30,31])
 
-    cumulateddays = np.array([0]+list(np.cumsum(days_in_months)))
+    #cumulateddays = np.array([0]+list(np.cumsum(days_in_months)))
 
 
-    day = int(remainder*days_in_year)
-    ind = np.argmax(cumulateddays-day>0)
-    month = ind+1
-    day = (cumulateddays-day)[ind]
+    #day = int(remainder*days_in_year)
+    
+    #ind = np.digitize(day,cumulateddays)
+    #month = ind
 
-    out = datetime.date(year,month,day)
+    #day = (cumulateddays-day)[ind]
+
+    #out = datetime.date(year,month,day)
+
+    x = decimalyear
+
+    out = datetime.datetime(int(x), 1, 1) + datetime.timedelta(days = (x % 1) * days_in_year)
 
     return out
 
-def str_to_decimalyear(string):
+def datetime_to_decimalyear(dtime):
+
+    # works for either datetime.datetime or pandas.timestamp
+
+    year = dtime.year
+    
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+        days_in_year = 366
+    else:
+        days_in_year = 365
+
+    fraction  = (dtime - datetime.datetime(year,1,1,0,0))/datetime.timedelta(1)/days_in_year
+    out = year + fraction
+    
+    return out
+
+def str_to_decimalyear_OLD(string):
     
     year = int(string[0:4])
     month = int(string[5:7])
@@ -337,3 +365,223 @@ def time_float_interp(time_bins,time_list,float_list):
     out = np.interp(seconds_bins,seconds_list,float_list)
     
     return out
+
+
+# FUNCTIONS THAT HAVE TO DO WITH PRECIPITATION INPUT
+
+def transfer_tp(TP,newindex):
+
+    cumprecip = TP.cumsum()
+
+    tp = np.diff(time_float_interp(newindex,cumprecip.index,cumprecip.values),prepend=np.nan)
+
+    return tp
+
+
+def precip_to_tp(time_index,precip):
+    
+    # instantaneous precipitation (kg/s or mm w.e/s) to total precipitation (mm w.e) for corresponding periods of the input time index
+    
+    cumprecip = accu_to_elev(precip) # hidden unit conversion, assumed precip is in kg per m^2 per _seconds_!
+    
+    tp = np.diff(time_float_interp(time_index,precip.index,cumprecip),prepend=np.nan)
+
+    return tp
+
+
+
+def weight_tp_M(time,signal,tp,window):
+
+    # Mathieu's version of weight precip; takes a tail behind each datapoint to collect 1.5cm accumulation
+    # Mathieu always works in total precipitation for the (preceding) period
+
+    dep = window
+    
+    intprecip = tp # integrated precips
+
+    out = np.full(len(signal),np.nan)
+    for i in range(len(signal)):
+        j=0
+        while np.sum(intprecip.iloc[i-j:i])<dep and i-j>=0: # find the number of datapoints we need to add up
+            j+=1
+
+        
+        A = np.nansum((signal*intprecip).iloc[i-j:i])
+        B = np.nansum(intprecip.iloc[i-j:i])
+        
+
+        out[i] = A/B # weight selected datapoints by amount of precip
+
+    return out
+
+
+def weight_tp_A(time,signal,tp,window,shift=0,res=0.01):
+
+    # assume precip is in units of per second
+    
+    # effect of precipitation intermitency
+    # weights the signal by the quantity of precipitation
+    # need to specify a window width for the quantity of precip to accumulate and average over
+
+    # Adrien's version. here we see that we are really doing the same
+    # as a VFC...
+    
+    dep = window
+
+    elev = np.cumsum(tp)
+
+    # preparing evenly spaced array for fast windowing
+    
+    #res = 0.01
+
+    elev_e = np.arange(np.min(elev),np.max(elev),res) # to the hundredth of mm
+
+    f2 = scipy.interpolate.interp1d(elev,signal,kind='next') # next; associate signal value to depth and all intermediate PRECEDING depths
+    signal_e = f2(elev_e) # square shaped interpolation
+
+    #plt.plot(depth_e,signal_e)
+
+    # preparing for the rolling average
+    window_e = int(np.ceil(window/res)) # window normalized in indices
+    shift_e = int(np.ceil(shift/res)) # shift normalized in indices
+
+    
+    signal_e_ave = pd.Series(signal_e).rolling(window_e,min_periods=1).mean().shift(-shift_e) # min period 1 to avoid nan at the start of the time series
+    #nb interestingly for us, rolling takes exactly the trailing window of observations: takes the average of the previous values over the range of _window_ mm w.e.
+    #this is exactly the behaviour that we want in terms of accumulation (forward in time)
+    
+    signal_out = np.interp(elev,elev_e,signal_e_ave)
+    
+    return signal_out
+
+def wtp_df(df,signal_column,tp_column,window,shift=0):
+    
+    out = pd.DataFrame(weight_tp_A(df.index,df[signal_column],df[tp_column].shift(shift),window)).set_index(df.index)
+    
+    return out
+
+# alternative version that works with precipitaiton rates (divided by time delta)
+
+def weight_precip_A(time,signal,precip,window,shift=0,res=0.01):
+
+    #time, signal and precip are assumed to be the same shape
+    # window in depth units
+    # shift in depth units
+
+    # assume precip is in units of per second
+    
+    # effect of precipitation intermitency
+    # weights the signal by the quantity of precipitation
+    # need to specify a window width for the quantity of precip to accumulate and average over
+
+    # Adrien's version. here we see that we are really doing the same
+    # as a VFC...
+    
+    dep = window
+    
+    dt = np.diff(time).astype('timedelta64[s]').astype(int) # convert to number of days, and we will assume precip is in units of per seconds
+    dt = np.concatenate([[dt[0]],dt]) # restore first value, assume it is similar to second value (daily, monthly...)
+
+    intprecip = precip*dt # integrated precips
+
+    depth = np.cumsum(intprecip) # to meters
+
+    # preparing evenly spaced array for fast windowing
+    
+    #res = 0.01
+
+    depth_e = np.arange(np.min(depth),np.max(depth),res) # to the hundredth of mm
+
+    f2 = scipy.interpolate.interp1d(depth,signal,kind='next') # for staircase square interpolation
+    signal_e = f2(depth_e) # square interpolation
+
+    # preparing for the rolling average
+    window_e = int(np.ceil(window/res)) # window normalized in indices
+    shift_e = int(np.ceil(shift/res)) # shift normalized in indices
+
+    # signal will typically be given 
+    # to get average value e.g 20mm under the surface we will shift up by 20mm after rolling -> negative sign in shift
+    
+    signal_e_ave = pd.Series(signal_e).rolling(window_e,min_periods=1).mean().shift(-shift_e) # min period 1 to avoid nan at the start of the time series
+    
+    signal_out = np.interp(depth,depth_e,signal_e_ave)
+    
+    return signal_out
+
+def wp_df(df,signal_column,precip_column,window,shift=0):
+    
+    out = pd.DataFrame(weight_precip_A(df.index,df[signal_column],df[precip_column].shift(shift),window)).set_index(df.index)
+    
+    return out
+
+# From elevation to accumulation and vice-versa
+# some functions that I used in the trench accumulation study
+
+def elev_to_accu(elev_df):
+
+    # assume type of df index is datetime64[ns]
+
+
+    # elevation = cumsum (accumulation x dT)
+    # accumulation = d_elevation / dT
+    
+    # input: elevation df of length n
+    # output: accumulation df of length n 
+        
+    dt_array = elev_df.index.to_series().diff().dt.days
+        
+
+    accu_df = (elev_df.diff(axis=0).T/dt_array.to_numpy()).T
+
+    #accu_df = accu_df.reindex_like(elev_df) # otherwise datetime type is changed???
+    
+    return accu_df
+
+def accu_to_elev(accu_df,elev_df_top = None):
+
+    # assume accu is in units of per seconds!!!
+    
+    # input: accu df with k columns and time index of length n, x0 array of length k
+    # output: cumsum(dx/dt) + x0 array of length n
+
+    # meant to work with 1d and 2d arrays/dataframes;
+    
+    if elev_df_top is None:
+        if len(accu_df.shape)>1:
+            elev_df_top = np.full(accu_df.shape[1],0)
+        else:
+            elev_df_top = np.array([0])
+
+    dt = np.diff(accu_df.index).astype('timedelta64[s]')/np.timedelta64(1,'s') # convert to number of days, and we will assume precip is in units of per seconds
+    dt = np.concatenate([[np.nan],dt]) # dummy last value: traditionally, tp value of 01-01-2000 is from 01-01-2000 to 01-02-2000 -> last value not associated to time delta
+
+    delev_array = (accu_df.mul(dt,axis='rows')).to_numpy() 
+    
+    # change of elevation = accumulation X dt
+    # first value of accumulation is lost; we don't know what time delta it relates to
+
+    # first value of delev_array (nan) is replaced by elev_df_top, which is zero by default, but can be changed to something else
+
+
+    delev_df = pd.DataFrame(delev_array).set_index(accu_df.index)
+
+    delev_df.shift() # shift by one
+    
+    delev_df.iloc[0] = elev_df_top
+
+    elev_df = delev_df.cumsum()
+
+    # just some manipulation for the output
+    # if input is pd timeseries: return timeseries
+    # if input is pd dataframe: return dataframe
+    
+    if type(accu_df) == pd.DataFrame:
+        elev_df.columns = accu_df.columns # restore column names if input is Dataframe
+    elif type(accu_df) == pd.Series:
+        elev_df = elev_df[0] # extract first column if input was just a series :)
+    
+
+    #elev_df = elev_df.reindex_like(accu_df) # otherwise datetime type is changed???
+
+    
+    return elev_df

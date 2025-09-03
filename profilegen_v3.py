@@ -23,8 +23,8 @@ import vfcdevel.logsmooth as lsm
 
 from scipy.interpolate import interp1d
 
-def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=0.1, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
-               storage_diffusion_cm = 0):
+def Profile_gen(Date, Temp, Tp, Precip_d18O, Precip_dexc, rho, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+               storage_diffusion_cm = 0, verbose = False):
     
     # Generates the profile of isotopic composition of a snow column
     #
@@ -107,7 +107,7 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
 
     # Preparing VFC df
     
-    vfc = pd.DataFrame({'d18O_raw':Precip_d18O.to_numpy(),'date':Date.to_numpy()},index=depth_raw)
+    vfc = pd.DataFrame({'date':Date.to_numpy(),'d18O_raw':np.array(Precip_d18O),'dexc_raw':np.array(Precip_dexc)},index=depth_raw)
     
     vfc = vfc.sort_index() # place surface depth = 0 at the begining
 
@@ -136,11 +136,10 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     ####################################################################### Generate white noise
     #####################################################################
     
-    d18O_ini = vfc_even['d18O_raw'].to_numpy()
+    #d18O_ini = vfc_even['d18O_raw'].to_numpy()
     
-    sig_d18O = np.nanstd(d18O_ini); #d18O_int
-    m_d18O = np.nanmean(d18O_ini);
-    wn18O = np.full(d18O_ini.shape,np.nan)
+    #sig_d18O = np.nanstd(d18O_ini); #d18O_int
+    #m_d18O = np.nanmean(d18O_ini);
     
     noise_scale_we = noise_scale_m/1000*rho # the imput noise scale in mm SNOW is converted to mm Water with the factor 1000/rho
     noise_scale = int(noise_scale_we/reswe) # converted ot index resolution
@@ -153,9 +152,13 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     #wn18O[ind]= np.random.randn()
 
     # same as above but without for loop 
-    f = interp1d(np.arange(0,len(vfc_even)+noise_scale,noise_scale),np.random.normal(0,sig_d18O,len(np.arange(0,len(vfc_even)+noise_scale,noise_scale))),
+    # should it be the same seed for all species of a different one for Dexc??
+    
+    f = interp1d(np.arange(0,len(vfc_even)+noise_scale,noise_scale),
+                 np.random.normal(0,1,len(np.arange(0,len(vfc_even)+noise_scale,noise_scale))),
                  kind='previous')
-    wn18O = f(np.arange(0,len(vfc_even),1))
+    
+    wn = f(np.arange(0,len(vfc_even),1)) 
 
     ################################################################# VFC[d18O ini & white noise] (Laepple)
     ###########################################################
@@ -166,10 +169,16 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     # include this factor ??
     #factor = 1/np.sqrt(noise_scale_m*100)
     
-    d18O_noise_Laepple = np.sqrt(1. - noise_level)*d18O_ini + np.sqrt(noise_level)*wn18O
+    #d18O_noise_Laepple = np.sqrt(1. - noise_level)*d18O_ini + np.sqrt(noise_level)*wnd18O
 
-    vfc_even['d18O_noise'] = d18O_noise_Laepple
+    vfc_even['d18O_noise'] = np.sqrt(1. - noise_level)*vfc_even['d18O_raw'] + np.sqrt(noise_level)*wn*np.nanstd(vfc_even['d18O_raw']) 
+    vfc_even['d18O_noise'] += (1-np.sqrt(1.-noise_level))*np.nanmean(vfc_even['d18O_raw'])
+                                                                                                                                                                            
+    vfc_even['dexc_noise'] = np.sqrt(1. - noise_level)*vfc_even['dexc_raw'] + np.sqrt(noise_level)*wn*np.nanstd(vfc_even['dexc_raw']) 
+    vfc_even['dexc_noise'] += (1-np.sqrt(1.-noise_level))*np.nanmean(vfc_even['dexc_raw'])
 
+    # the series above should by construction have the same std and mean as the original series
+    
     ######################################################################### Mixing
     ##################################################################################
 
@@ -177,16 +186,23 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     mixing_scale = int(mixing_scale_we/reswe) # convert mixing scale to 
     
     vfc_even['d18O_mix'] = vfc_even['d18O_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
+
+    vfc_even['dexc_mix'] = vfc_even['dexc_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
     
     ################################################################# VFC[d18O ini & white noise & Mixing]
     ############################################################
     
     d18O_mix_noise =  (1.-mixing_level) * vfc_even['d18O_noise'] + mixing_level * vfc_even['d18O_mix']
     
-    d18O_mix_noise += -np.nanmean(d18O_mix_noise) + m_d18O; # restore initial mean
-
+    dexc_mix_noise =  (1.-mixing_level) * vfc_even['dexc_noise'] + mixing_level * vfc_even['dexc_mix']
+    
     vfc_even['d18O'] = d18O_mix_noise.to_numpy()
 
+    vfc_even['dexc'] = dexc_mix_noise.to_numpy()
+
+    vfc_even['dD'] = 8*vfc_even['d18O']+vfc_even['dexc']
+
+    # PHYSICAL PARAMETERS
     ############# Now invoque Herron Langway model to obtain snow depth
 
     depthsnow_uncompacted = depthwe_even*1000/rho # water depth is converted to uncompacted snow depth with the convertion factor 1000/rho
@@ -213,6 +229,7 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     
     rhod = vfc_snow_even['rho'].to_numpy()
     depthHL = vfc_snow_even.index.to_numpy()
+    
     sigma18,sigmaD = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
 
     #storage_diffusion_cm is an input of profile_gen!!
@@ -225,6 +242,11 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
     
     vfc_snow_even['d18O_diff'] = fm.Diffuse_record_OLD(vfc_snow_even['d18O'],sigma18/100,res)[0];
 
+    vfc_snow_even['dD_diff'] = fm.Diffuse_record_OLD(vfc_snow_even['dD'],sigmaD/100,res)[0];
+
+    vfc_snow_even['dexc_diff'] = vfc_snow_even['dD_diff'] - 8 * vfc_snow_even['d18O_diff']
+
+
     if storage_diffusion_cm>0:
         sigma18_storage = (sigma18**(2) + storage_diffusion_cm**(2))**(1/2)   #d'après Dallmayre et al. (2024)
         vfc_snow_even['d18O_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even['d18O'],sigma18_storage/100,res)[0];
@@ -234,13 +256,23 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, rho, mixing_level=0.1, noise_level=
 
     vfc_snow_even['sigma18'] = sigma18/100
 
+    vfc_snow_even['sigmaD'] = sigmaD/100
+
     # format of old output
     #depthHL = vfc_snow_even.index
     #d18O_even = vfc_snow_even['d18O_mix_noise']
     #d18O_even_diff = vfc_snow_even['d18O_diff']
     #date_even = vfc_snow_even['date']
-              
-    return vfc_snow_even
+
+    if verbose is True:
+        # keep all working columns (including mixing and noise, and dD)
+        outcolumns = vfc_snow_even.columns
+    else:
+        outcolumns = ['date','d18O_raw','dexc_raw','d18O', 'dexc', 'rho', 'depth_we', 'd18O_diff', 'dexc_diff','sigma18','sigmaD']
+
+    out = vfc_snow_even[outcolumns]
+    
+    return out
 
 
 

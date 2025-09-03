@@ -1,3 +1,21 @@
+from vfcdevel.utils import time_float_interp
+import numpy as np
+import scipy
+import matplotlib.pyplot as plt
+
+def model_to_obs_fit(model,obs):
+    
+    # if model is in hourly time step, and obs in daily
+    # make sure to average the model to daily timesteps first
+    
+    x = time_float_interp(obs.index,model.index,model.values)
+    y = obs.values
+    ind = np.logical_and(np.isfinite(x),np.isfinite(y))
+    a,b = scipy.stats.linregress(x[ind],y[ind])[:2]
+    plt.scatter(x,y,color='blue')
+    plt.plot(x,a*x+b,color='red')
+    return a,b
+
 def temp_to_iso_DC(Temp,iso,fit='era5'):
 
     # input: Temperature in Kelvin
@@ -8,8 +26,8 @@ def temp_to_iso_DC(Temp,iso,fit='era5'):
         beta = -32;
         
     if fit=='era5':
-        alpha = 0.51
-        beta=-29
+        alpha = 0.49
+        beta=-31
 
     if fit=='lmdz':
         alpha = 0.38
