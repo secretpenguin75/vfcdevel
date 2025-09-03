@@ -34,7 +34,7 @@ def read_species(Proxies):
     return species
 
 def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
-               storage_diffusion_cm = {'d18O':0,'dD':0} , verbose = False):
+               storage_diffusion_cm = None , verbose = False):
     
     # Generates the profile of isotopic composition of a snow column
     #
@@ -136,6 +136,10 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
             
     proxies_dic = {species[key]+'_raw':np.array(value) for key,value in Proxies.items()}
     species = list(species.values())
+
+    # handle the case when storage diffusion cm is an integer
+    if type(storage_diffusion_cm) == int:
+        storage_diffusion_cm = {spec:storage_diffusion_cm for spec in ['d18O','dD']}
     
     vfc = pd.DataFrame({'date':Date.to_numpy()} | proxies_dic ,index=depth_raw)
     
@@ -251,8 +255,8 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
     rhod = vfc_snow_even['rho'].to_numpy()
     depthHL = vfc_snow_even.index.to_numpy()
 
-    sigma = {}
-    sigma['d18O'],sigma['dD'] = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
+    sigma_cm = {}
+    sigma_cm['d18O'],sigma_cm['dD'] = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
 
     # time to compute dD if it is not in the input
 
@@ -263,13 +267,13 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
     # now we can diffuse
     for spec in list(set(['d18O','dD']) & set(species)):
         
-        vfc_snow_even[spec+'_diff'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma[spec]/100,res)[0];
-        vfc_snow_even['sigma'+spec] = sigma[spec]/100
+        vfc_snow_even[spec+'_diff'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_cm[spec]/100,res)[0];
+        vfc_snow_even['sigma'+spec] = sigma_cm[spec]/100
         
-        if storage_diffusion_cm[spec]>0:
-            sigma_storage = (sigma['d18O']**(2) + storage_diffusion_cm[spec]**(2))**(1/2)   #d'après Dallmayre et al. (2024)
-            vfc_snow_even['d18O_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even['d18O'],sigma18_storage/100,res)[0];
-            vfc_snow_even['sigma'+spec+'_stored'] = sigma18_storage/100
+        if spec in storage_diffusion_cm.keys():
+            sigma_storage_cm = (sigma_cm[spec]**(2) + storage_diffusion_cm[spec]**(2))**(1/2)   #d'après Dallmayre et al. (2024)
+            vfc_snow_even[spec+'_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_storage_cm/100,res)[0];
+            vfc_snow_even['sigma'+spec+'_stored'] = sigma_storage_cm/100
 
     # compute dexc if it was part of the input
     if 'dD_diff' in vfc_snow_even.columns and 'd18O_diff' in vfc_snow_even.columns: 
@@ -289,7 +293,9 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
                                         'd18O_raw','dD_raw','dexc_raw',
                                         'd18O','dD','dexc',
                                         'd18O_diff', 'dD_diff','dexc_diff',
-                                        'sigmad18O','sigmadD']
+                                        'd18O_diff2',
+                                        'sigmad18O','sigmadD',
+                                        'sigmad18O_stored']
                                         if bob in vfc_snow_even.columns]
 
     out = vfc_snow_even[outcolumns]

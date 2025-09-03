@@ -167,4 +167,22 @@ vfc = Profile_gen2(dfpaleo['decimalyear'],Tmean,dfpaleo['tp'],dfpaleo['d18O_inte
 ```
 vfc aura deux colonnes en plus avec 'd18O_diff2' qui rajoute la diffusion du stockage et 'sigma18_storage'. Ça a l'air de faire aucune différence pour icorda. En fait ça change à peine seulement dans le premier 1 mètre.
 
+# update sept 3;
+On peut maintenant gérer dexc et d18O en parralèle avec
+```
+Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df[['tsol_dexc','tsol_d18O']],320, mixing_level=0., noise_level=0.,storage_diffusion_cm = 3)
+```
+(NB: les doubles [[ ]] dans la quatrième entrée. L'espèce est assignée automatiquement à d18O ou dexc (ou dD) en fonction de l'intitulé de la colonne. Le choix est printed pour vérification par l'utilisateur)
+Par conséquent, storage diffusion désormais être un entier (même diffusion sur les deux espèces d18O et dD) ou un dictionnaire de la forme ```{'d18O':sigma18_storage_cm,'dD':sigmaD_storage}```.
+
+Tout est backward compatible avec une seule espèce, on peut donc aussi bien faire
+```
+Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df[['tsol_d18O']],320, mixing_level=0., noise_level=0.,storage_diffusion_cm = 3)
+```
+(une seule colonne) que
+```
+Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df['tsol_d18O'],320, mixing_level=0., noise_level=0.,storage_diffusion_cm = 3)
+```
+comme avant.
+
 _to be continued..._
