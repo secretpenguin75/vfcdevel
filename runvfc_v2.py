@@ -75,14 +75,14 @@ def superplot(MODELDATA,OBSDATA, NAMECORE, NOISESCALE_MM=10, MIXINGSCALE_MM=40):
     c_VFC_diff_sm = 'cadetblue'
     
     # Raw signal (0% noise, 0% mixing)
-    VFC_nl0_ml0, spectra_nl0_ml0 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=0, regular_grid=grid)
+    VFC_nl0_ml0, spectra_nl0_ml0 =  VFC_and_spectra_v2(MODELDATA, core_resolution,0, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=0, regular_grid=grid)
     # # Noise level 0/20/40/60/80/100% (Mixing level 100%)
-    VFC_nl0_ml100, spectra_nl0_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=1.0, regular_grid=grid)
-    VFC_nl20_ml100, spectra_nl20_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.2, ml=1.0, regular_grid=grid)
-    VFC_nl40_ml100, spectra_nl40_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.4, ml=1.0, regular_grid=grid)
-    VFC_nl60_ml100, spectra_nl60_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.6, ml=1.0, regular_grid=grid)
-    VFC_nl80_ml100, spectra_nl80_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.8, ml=1.0, regular_grid=grid)
-    VFC_nl100_ml100, spectra_nl100_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=1.0, ml=1.0, regular_grid=grid)
+    VFC_nl0_ml100, spectra_nl0_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution,0, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0, ml=1.0, regular_grid=grid)
+    VFC_nl20_ml100, spectra_nl20_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution,0, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.2, ml=1.0, regular_grid=grid)
+    VFC_nl40_ml100, spectra_nl40_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution,0, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.4, ml=1.0, regular_grid=grid)
+    VFC_nl60_ml100, spectra_nl60_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution,0, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.6, ml=1.0, regular_grid=grid)
+    VFC_nl80_ml100, spectra_nl80_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution,0, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=0.8, ml=1.0, regular_grid=grid)
+    VFC_nl100_ml100, spectra_nl100_ml100 =  VFC_and_spectra_v2(MODELDATA, core_resolution,0, mix_scale = MIXINGSCALE_MM, noise_scale = NOISESCALE_MM, nl=1.0, ml=1.0, regular_grid=grid)
 
     
     # FIGURE VFC RAW 0% NOISE 0% MIXING
