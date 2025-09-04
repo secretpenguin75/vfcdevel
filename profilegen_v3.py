@@ -34,7 +34,7 @@ def read_species(Proxies):
     return species
 
 def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
-               storage_diffusion_cm = None , verbose = False):
+               storage_diffusion_cm = {} , verbose = False):
     
     # Generates the profile of isotopic composition of a snow column
     #
