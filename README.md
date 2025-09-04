@@ -22,9 +22,9 @@ Et ensuite, appeler les fonctions
 ```
 # load your favourite model output
 df = pd.read_csv('./vfcdevel/data/lmdz_DC.csv',index_col=0,parse_dates=True)
-df['precipd18O']-=4.1
+#df['precipd18O']-=4.1
 # create a virtual firn core from the model
-VFC = Profile_gen(df['decimalyear'],df['tp'],df['d18O_inter'],Tmean,350)
+VFC = Profile_gen(df['decimalyear'],df['tsol'],df['tp'],df['precipd18O'],320)
 plt.plot(VFC['d18O'])
 
 ```
