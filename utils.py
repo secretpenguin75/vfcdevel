@@ -72,6 +72,7 @@ def df_interp(df,newindex,kind='linear'):
     array2 = array_interp(newindex,oldindex,array,kind)
 
     df2 = pd.DataFrame(array2,index = newindex,columns = df.columns)
+    df2.index.name = df.index.name
 
     return df2
 
@@ -147,16 +148,19 @@ def block_average_OLD(df,res):
 
 
     df2 = copy.deepcopy(df1)
-    depth = np.array(df2.index)
+    index = np.array(df2.index)
 
-    df2.index.name = None
+    indexname = df2.index.name
+    
+    #df2.index.name = None # to avoid error in case the df.index is already called "depth" and since index name will be overwritten anyways
+    
+    df2['xxxxx'] = ( index // res) * res
 
+    out = df2.groupby('xxxxx').mean()
+
+    out.index.name = indexname
     
-    df2.index.name = None # to avoid error in case the df.index is already called "depth" and since index name will be overwritten anyways
-    
-    df2['depth'] = (depth // res) * res
-    
-    return df2.groupby('depth').mean()
+    return out
 
 
 def block_average_OLD3(df,res):
