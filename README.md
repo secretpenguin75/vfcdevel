@@ -25,9 +25,15 @@ df = pd.read_csv('./vfcdevel/data/lmdz_DC.csv',index_col=0,parse_dates=True)
 #df['precipd18O']-=4.1
 # create a virtual firn core from the model
 VFC = Profile_gen(df['decimalyear'],df['tsol'],df['tp'],df['precipd18O'],320)
-plt.plot(VFC['d18O'])
+plt.plot(VFC['d18O_diff'])
 
 ```
+also available for era5
+````
+df = pd.read_csv('./vfcdevel/data/era5.csv',index_col=0,parse_dates=True)
+VFC = Profile_gen2(df['decimalyear'],df['t2m'],df['tp'],df['t2m_d18O'],320)
+plt.plot(VFC['d18O_diff'])
+````
 Now you can compare it to your _real_ core
 
 ```
