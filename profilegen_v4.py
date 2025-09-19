@@ -5,6 +5,7 @@ from pathlib import Path
 import netCDF4
 import os
 import numpy as np
+import xarray as xr
 import datetime as datetime
 import pandas as pd
 import xarray as xr
@@ -14,87 +15,70 @@ import pickle as pkl
 import scipy
 import copy
 import matplotlib as mpl
+import sys
+import scipy
 
 # custom libraries
 import vfcdevel.forwardmodel as fm
 from vfcdevel.utils import *
 from vfcdevel.spectralanalysis import mtm_psd
 import vfcdevel.logsmooth as lsm
+from tqdm.notebook import tqdm
 
 from scipy.interpolate import interp1d
 
-def read_species(Proxies):
-    
-    species = {}
-    for key in Proxies.columns:
-        for spec in ['d18O','dD','dexc']:
-            if spec in key:
-                species[key] = spec
 
-    return species
+def sublimation_step(isoarray,dspec,tempi,totevapi,subl_depth_we,reswe,sublprofile = 'triangle'):
 
-def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
-               storage_diffusion_cm = None , verbose = False):
-    
-    # Generates the profile of isotopic composition of a snow column
-    #
-    # This calculates the isotopic composition of polar firn for the stable
-    # water isotopes oxygen-18, depending on site-specific parameters, as well
-    # as the temperature and precipitation time series. 
-    #
-    # Date : Datetime vector object, describing the temperature (Temp) and
-    #        precipitation (Prec) time series
-    # Temp : Numeric vector of temperature (°C), same length as Date
-    # Tp : Numeric vector of Total precipitation amount (kg.m-2 or mm w.e.), 
-    #        same length as Date
-    # rho  : Local firn density (kg.m-3), single value
-    #
-    # This routine use the temperature and precipitation time series to create
-    # a virtual ice cores that compiles precipitation intermittency and
-    # diffusion. 
-    # First, the temperature time serie is converted into an isotopic
-    # composition of precipitation using common coefficient (alpha and beta,
-    # Stenni et al, 2016). For a specific site where these parameters are
-    # available, these can be adjusted. 
-    # Then, the intermittent virtual core is computed by adding layers of
-    # snow with a width determined by the precipitation amount associated with
-    # each events, and an isotopic composition calculated from the temperature
-    # time serie. This intermittent virtual core is interpolated onto a regular
-    # grid, using a constant step of 1 mm, which can lead to very large
-    # variables for important accumulation sites or very long time series. The
-    # resolution at which the core is interpolated should remain small compared
-    # to the diffusion length (see below). 
-    # Then, the isotopic profile is diffused, and the diffused virtual core is
-    # generated. Finally, the intermittent (d18O_int) and the diffused 
-    # (d18O_diff) virtual core profiles are blocked averaged to a resolution 
-    # of 1 cm, a value similar to the thickness of samples from ice core 
-    # records.
-    #
-    # This function was created in the framework of the manuscript Casado et
-    # al, Climatic information archived in ice cores: impact of intermittency
-    # and diffusion on the recorded isotopic signal in Antarctica, Climate of
-    # the Past (2020)
-    
-    # a wrapper that does the in principle the same as the original matlab version
-    # profile gen, diffuse and block average
+    # dspec = d18O or dD
+    # isoarray = isotopes vs depth in mmwe at step i
+    # res resolution in mmwe of the corresponding depth array
+    # tempi = surface temperature at step i
+    # evapi = evaporation at step i
 
-    #Preamble;
-    #To avoid numerical errors leading to doublons of datapoints with the same depth due to numerical approximation
-    # (legacy (superfluous?), for now to have the same result as the matlab version)
+    #totevapi = Evap.iloc[i]
+    #tempi = Temp.iloc[i]
     
-    #keep = (Prec>1e-10)
-    #Date = Date[keep]
-    #Temp = Temp.loc[keep]
-    #Prec = Prec.loc[(keep)]
-    #if not Precip_d18O is None: Precip_d18O = Precip_d18O.loc[keep]
-    
-    
-    #Generates the profile of isotopic composition of a snow column
-    # <!> generates profile at the mm resolution, no block average (see profile_gen_legacy)
-    #ddays = np.diff(Date).astype('timedelta64[D]').astype(int) # convert to number of days, and we will assume precip is in units of per days
-    #ddays = np.concatenate([[ddays[0]],ddays]) # restore first value, assume it is similar to second value (daily, monthly...)
+    spec = dspec[1:] # remove d prefix
 
-    #res = 1e-3 # work at the mm resolution for interpolation, diffusion and others...
+    # prepare fractionation coefficient in dictionaries and arrays
+
+    rhowater = 1000
+
+    M = reswe*rhowater # mass in a layer of 1mm (we are still in water equivalent)
+
+    #h = df['h'] # varying saturation
+    h=0.8
+    
+    k = fm.kdiff('Cappa',spec,0.4)
+    alphaeq = fm.Frac_eq('Maj', spec ,tempi-273.15) # considering surface temperature only
+
+    #subl_depth_we = subl_depth_m/1000
+    subl_depth_e = int(subl_depth_we/reswe)
+
+    # create a 1D array that has just the sublimation values at time Ti
+
+    if sublprofile =='triangle':
+        TE = np.full(len(isoarray),0.) # a 1-D array that has the same length as depth axis
+        TE[:subl_depth_e] = np.arange(subl_depth_e)[::-1]/np.sum(np.arange(subl_depth_e))*totevapi # triangle shape        
+    elif sublprofile == 'square':
+        TE = np.full(len(isoarray),0.) # a 1-D array that has the same length as depth axis
+        TE[:subl_depth_e] = totevapi/subl_depth_e  # here square shape of length k
+    elif sublprofile =='exponential':
+        TE = np.exp(-np.arange(len(isoarray))/subl_depth_e)/np.sum(np.exp(-np.arange(len(isoarray))/subl_depth_e))*totevapi # exponential        
+
+    sigma = (M - 1/alphaeq*(1-k)/(1-h*k)*TE)/(M-TE) # <----- a vector that works spatially
+
+    if max(TE)>M:
+        print('warning')
+
+    isoarraysubl = sigma*isoarray+(sigma-1)*1e3 # one operation sublimation, with mean temperature at surface
+
+    return isoarraysubl,TE
+
+def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+               storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3):
+
 
     reswe = res*rho/1000 # the working resolution for water depth should be smaller by a factor 1000/rho than the target resolution for snow
 
@@ -110,10 +94,8 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
 
     ## Compute precipitation intermittent depth serie  
 
-    depth_raw = np.cumsum(Tp.to_numpy()[::-1])[::-1] # sum from present assuming Date is from past to present
-    depth_raw = depth_raw/1000  # to meters # ! this is the water equivalent depth in meters !
-    #depth_raw -=depth_raw[0]
-    #depth_raw_mean = depth_raw[:-1] + np.diff(depth_raw)/2; # middle grid points # I don't use this at the moment
+    depth_raw = Tp.iloc[::-1].cumsum().to_numpy()[::-1]
+    depth_raw = depth_raw/1000
 
     # Preparing VFC df
 
@@ -122,223 +104,247 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
     # in order to identify which species is represented (for diffusion) we keep track of it using Pandas Dataframe attrs (attributes)
     # the Proxies.attrs['species'] dictionary as an isotopic species (d18O or dexc or dD) associated to each columns in Proxies
 
-    if type(Proxies) == pd.Series:
-        
-        Proxies = pd.DataFrame(Proxies)
-
-    if 'species' in Proxies.attrs:
-        species = Proxies.attrs['species']
-        
-    else:
-        species = read_species(Proxies)
-        print('Species assigned automatically as:')
-        print(species)
-            
-    proxies_dic = {species[key]+'_raw':np.array(value) for key,value in Proxies.items()}
-    species = list(species.values())
-
     # handle the case when storage diffusion cm is a float
     if type(storage_diffusion_cm) in [int,float]:
         storage_diffusion_cm = {spec:storage_diffusion_cm for spec in ['d18O','dD']}
-    
-    vfc = pd.DataFrame({'date':Date.to_numpy()} | proxies_dic ,index=depth_raw)
-    
-    vfc = vfc.sort_index() # place surface depth = 0 at the begining
-
-    ################################################################## Interpolation to a regular grid
-    ###############################################################
-
-    # Working on a regular grid in mmwe. This corresponds to uncompacted snow when applying the conversion factor 1000/rho_snow
-    # Therefore it is the right depth scale for processes like mixing and white noise which happen on un-compacted snow at the surface
-
-    vfc_even = block_average_OLD(vfc,reswe)
-    depthwe_even = vfc_even.index.to_numpy()
 
     
+    if type(Proxies) == pd.Series:
+        Proxies = pd.DataFrame(Proxies)
 
-    ## Sublimation (removing isotopes, no snow layer thickness change, only density)
-    ## Condensation from the atmosphere
-    ## Frost at the surface
-    ## Condensation from the snow below 
+    speciesmap = read_species(Proxies)
+    print('Species assigned automatically as:')
+    print(speciesmap)
+    species = list(speciesmap.values())
     
-    ####################################################################### Generate white noise
-    #####################################################################
+    Proxies = Proxies.rename(columns = speciesmap)
     
-    noise_scale_we = noise_scale_m/1000*rho # the imput noise scale in mm SNOW is converted to mm Water with the factor 1000/rho
-    noise_scale = int(noise_scale_we/reswe) # converted ot index resolution
+    if ('d18O' in species and 'dexc' in species) and 'dD' not in species:
+        # if d18O and dexc are given as input, add dD as it is on dD that we apply subl,diffusion, etc...
+        Proxies['dD'] = 8*Proxies['d18O']+Proxies['dexc']
+        species += ['dD']
+
+    #proxies_dic = {key:value for key,value in Proxies.items()}
+
+
+    ##############################################
+    ##############################################
+
+    # Here initialize temperature profiles that will be used in condensation computation
+    # and leave an option to re--use them for later computation
+    # temperature profiles to be added as (time) x (depth) array in xvfc
+
+    ##############################################
+    ##############################################
     
-    # RANDOM AVEC DISTRIBUTION GAUSSIENNE
+
+    # keep track of deposition time
+    Proxies.insert(0,'deposition_time',Date)
+
+
+    # INITIAL INTERPOLATION STEP
+    # here we interpolate the initial data on depth_raw axis to a depth_even axis
+    # in order to respect the initial precipitation weights, we first interpolate on a finer grid with 'next' method
+    # then we apply a block average, these two steps effectively preserve precipitation weighting
     
-    f = interp1d(np.arange(0,len(vfc_even)+noise_scale,noise_scale),
-                 np.random.normal(0,1,len(np.arange(0,len(vfc_even)+noise_scale,noise_scale))),
-                 kind='previous')
+    subsampling = 100
+
+    depth_hires = np.arange(0,max(depth_raw),reswe/subsampling)
+
+    ff = scipy.interpolate.interp1d(depth_raw[::-1],Proxies.to_numpy()[::-1],kind='next',fill_value='extrapolate',axis=0)
+
+    proxies_hires = ff(depth_hires)
+
+    depth_even_bins = np.arange(0,max(depth_raw)+reswe,reswe)
+
+    print(proxies_hires.shape)
+
+    proxies_even = scipy.stats.binned_statistic(depth_hires,proxies_hires.T,bins=depth_even_bins)[0].T
+    depth_even = depth_even_bins[:-1]
+
+    xvfc0 = pd.DataFrame(proxies_even,index=pd.Index(depth_even,name='depth'),columns = Proxies.columns).to_xarray()
+
+    xvfc0 = xvfc0.rename({key:key+'_raw' for key in species}) # change column names to 'd18O_raw' and 'dexc_raw'    
+
+    # END OF INITIAL INTERPOLATION STEP
+
     
-    wn = f(np.arange(0,len(vfc_even),1)) 
+    colind = {}
+    for dspec in list(set(['d18O','dD']) & set(species)):
+        # duplicate isotope column for later analyses with and without post dep effect
+        xvfc0[dspec] = xvfc0[dspec+'_raw'].copy()
+        # keep track of column index for the time loop
+        colind[dspec] = list(xvfc0.to_dataarray()['variable']).index(dspec)
 
-    ################################################################# VFC[d18O ini & white noise] (Laepple)
-    ###########################################################
+    # this will be overwritten but we generate an empty version to get dimensions right
 
-    #dans le code d'emma, factor est calé sur noise_scale = noise_scale_mm en mm de neige
-    #pour reproduire ça, on utilise noise_scale_m*100 = noise_scale_mm/10
+    #if keeplog is False and Te is None:
 
-    # include this factor ??
-    #factor = 1/np.sqrt(noise_scale_m*100)
+
     
-    #d18O_noise_Laepple = np.sqrt(1. - noise_level)*d18O_ini + np.sqrt(noise_level)*wnd18O
+    if keeplog is False and Te is None:
 
-    for spec in species:
-        vfc_even[spec+'_noise'] = np.sqrt(1. - noise_level)*vfc_even[spec+'_raw'] + np.sqrt(noise_level)*wn*np.nanstd(vfc_even[spec+'_raw']) \
-                                        + (1-np.sqrt(1.-noise_level))*np.nanmean(vfc_even[spec+'_raw'])
+        # if we do not want to keep the time log (for example to monitor surface snow)
+        # and if surface processes are off 
+        # then we can skip the timeloop alltogether and compute VFC as in the first versions
 
-    # the series above should by construction have the same std and mean as the original series
+        # introduce a dummy, length 0 dimension for time in case there is no need for time loop
+        
+        xvfc_we = copy.deepcopy(xvfc0.expand_dims({"time":[Date.values[-1]]},axis=0).isel(time=-1))
+
+    else:
+
+        
+        if Te is not None:
+            # add a column to keep track of evaporation (this could be dropped in a final version)
+            Te = np.maximum(Te,0) # for now, ignore negative sublimation
+            xvfc0['evap'] = np.nan
+            colind['evap'] = list(xvfc0.to_dataarray()['variable']).index('evap')
+
+
+        # if history in on AND/OR for post deposition INTRODUCE THE TIME coordinate for the time loop
+        xvfc_we = copy.deepcopy(xr.full_like(xvfc0,np.nan).expand_dims({"time":Date.values},axis=0))
     
-    ######################################################################### Mixing
-    ##################################################################################
-
-    mixing_scale_we = mixing_scale_m/1000*rho # convert input mixing scale in snow depth to water equivalent depth
-    mixing_scale = int(mixing_scale_we/reswe) # convert mixing scale to 
-
-    for spec in species:
-        vfc_even[spec+'_mix'] = vfc_even[spec+'_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
+        vfc0 = xvfc0.to_dataarray().transpose('depth','variable').values
     
-    ################################################################# VFC[d18O ini & white noise & Mixing]
-    ############################################################
-
-    for spec in species:
+        xvfc_we_da = xvfc_we.to_dataarray().transpose('time','depth','variable')# bring time as first variable for convenience
+        
+        logvfc = xvfc_we_da.values # numpy array for faster time loop operations
     
-        vfc_even[spec] =  (1.-mixing_level) * vfc_even[spec+'_noise'] + mixing_level * vfc_even[spec+'_mix']
-
-    # PHYSICAL PARAMETERS
-    ############# Now invoque Herron Langway model to obtain snow depth
-
-    depthsnow_uncompacted = depthwe_even*1000/rho # water depth is converted to uncompacted snow depth with the convertion factor 1000/rho
-    # this uncompacted snow depth will overshoot the actual depth
-    # this gives us an upperbound on the range over which to compute HerronLangway density profile
     
-    Tmean = np.mean(Temp)
-    depthwe_HL,rhod =  fm.DensityHL(depthsnow_uncompacted,rho,Tmean,accu); #on calcule HL et la profondeur en we
+        # TIME LOOP FOR VAPOUR PROCESSES
+        timebar = tqdm(range(len(Date)),'Processing time loop',colour='green')
 
-    vfc_even['rho'] = np.interp(depthwe_even,depthwe_HL,rhod) # we will keep snow density in the dataframe
+        
+        for i in timebar:
+            #### in depth
+            logvfci = np.full(vfc0.shape,np.nan)
+                
+            if i<len(timebar)-1:
+        
+                # feed new values
+                maski0 = (depth_even<=depth_raw[i])&(depth_even>depth_raw[i+1]) # layer beetween snow deposited at time t_i and snow deposited at time t_i+1
+                logvfci[:sum(maski0)] = vfc0[maski0] # position of profile_i on the final profile
+        
+                # feed previous timestep
+                maski = (depth_even>depth_raw[i]) # deeper than layer i
+                logvfci[sum(maski0):sum(maski0)+sum(maski)] = logvfc[i-1][:sum(maski)]
     
-    depthsnow_real = np.interp(depthwe_even,depthwe_HL,depthsnow_uncompacted)
+            if i == len(timebar)-1:
+        
+                # feed new values
+                maski0 = (depth_even<=depth_raw[i]) # layer beetween snow deposited at time t_i and snow deposited at time t_i-1
+                logvfci[:sum(maski0)] = vfc0[maski0] # position of profile_i on the final profile
+        
+                # feed previous timestep
+                maski = (depth_even>depth_raw[i]) # deeper than layer i
+                logvfci[sum(maski0):sum(maski0)+sum(maski)] = logvfc[i-1][:sum(maski)]
+        
+            # sublimation comes here
+    
+            #### SUBLIMATION STARTS HERE
+            # takes the previous iteration of isotope array and applies
+            # the linear transformation packed in sublimationstep
+        
+            if Te is not None:
+                for dspec in list(set(['d18O','dD']) & set(species)):
+                    ind = colind[dspec]
+                    subl_depth_we = subl_depth_m*rho/1000
+                    logvfci[:,ind],TEi = sublimation_step(logvfci[:,ind],dspec,Temp.iloc[i],Te.iloc[i],subl_depth_we,reswe,sublprofile = 'exponential')
+                logvfci[:,colind['evap']] = TEi
+                    
+                # condensation comes here
+        
+            logvfc[i] = copy.deepcopy(logvfci)
+    
+        # when we are done with the loop, convert numpy array to xr dataset
+        
+        coords = xvfc_we_da.coords
+        xvfc_we = xr.DataArray(logvfc,coords=coords).to_dataset(dim='variable') # clumsy but I am a xr noobie okay
+        
+        #########################################################################
+        #########################################################################
+        ########################################################### CONTINUE HERE
+        
+        # only keep one record every ::logperiod for faster processing of diffusion
 
-    ############## A vfc with even snowdepth index is now obtained with
+        if keeplog is False:
+            
+            xvfc_we = xvfc_we.isel(time=-1) #only keep the last iteration
 
-    depthsnow_even = np.arange(0,np.max(depthsnow_real),res)
-    vfc_even['depth_we'] = vfc_even.index.to_numpy()
+        else:
+            # logperiod tells the frequency at which to keep a trace of the vfc
+            # in future version, could be a slice of df['date'] etc
+            
+            xvfc_we = xvfc_we.isel(time=slice(None,None,-1)).isel(time=slice(None,None,logperiod)).isel(time=slice(None,None,-1))
+
+
+    # Add in physical parameters: density
     
-    vfc_snow_even = df_interp(vfc_even.set_index(depthsnow_real),depthsnow_even)
-                                                  
-    ############################################################################ Diffusion
-    ############################################################################
-    # we now apply diffusion to the vfc with in even snow depth
+    depthwe = xvfc_we['depth'].values
+    Tmean = np.nanmean(Temp)
+    depthsnow,rhod = fm.DensityHL_we(depthwe,rho,Tmean,accu)
     
-    rhod = vfc_snow_even['rho'].to_numpy()
-    depthHL = vfc_snow_even.index.to_numpy()
+
+    xvfc_we['rhoHL'] = xr.DataArray(rhod,coords={'depth':xvfc_we.coords['depth']})
+    xvfc_we['depthwe'] = xr.DataArray(depthwe,coords={'depth':xvfc_we.coords['depth']}) # -> before switching to snow depth, store we depth inside dataset
+
+    
+    # INTRODUCE VFC IN REAL SNOW DEPTH
+    
+    xvfc = copy.deepcopy(xvfc_we)
+    
+    xvfc.coords['depth'] = depthsnow
+
+    xvfc = xvfc.interp({'depth':np.arange(0,np.max(depthsnow),res)},method='linear')
 
     sigma_cm = {}
-    sigma_cm['d18O'],sigma_cm['dD'] = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
+    sigma_cm['d18O'],sigma_cm['dD'] = fm.Diffusionlength_OLD(xvfc['depth'].values,xvfc['rhoHL'].values,Tmean,650,accu);
 
-    # time to compute dD if it is not in the input
+    xvfc['sigma18'] = xr.DataArray(sigma_cm['d18O'],coords={'depth':xvfc.coords['depth']})
+    xvfc['sigmaD'] = xr.DataArray(sigma_cm['dD'],coords={'depth':xvfc.coords['depth']})
 
-    if ('d18O' in species and 'dexc' in species) and 'dD' not in species:
-        vfc_snow_even['dD'] = 8*vfc_snow_even['d18O']+vfc_snow_even['dexc']
-        species+= ['dD']
+    #return xvfc,xvfc_we
 
-    # now we can diffuse
-    for spec in list(set(['d18O','dD']) & set(species)):
+   # now we can diffuse
+    specs = [] # columns to diffuse
+    sigmas = []
+    for speci,sigmai in [('d18O','sigma18'),('dD','sigmaD')]:
+        for column in xvfc.var(): # scan variables and assign species one more time
+            if speci in column:
+                specs.append(column)
+                sigmas.append(sigmai)
+    
+    sigmaarray = np.stack([xvfc[sigmai] for sigmai in sigmas],axis=1)
+
+    #return xvfc,xvfc_we
+
+    if False:
+        # Testing out ways to diffuse; each column one by one or all columns in parralel
+        # odly it seems that all columns in parralel is slower
+
+        # put depth first for the loop over depth in Diffuse_record
+        # and put variable last so each species can pick up its own column in sigmaarray
+    
+        xvfc[[speci+'_diff' for speci in specs]] =  xr.DataArray(Diffuse_record2(xvfc[specs].to_dataarray().transpose('depth',...,'variable'),
+                                                   sigmaarray/100/res,resolve='full'),
+                                            coords = xvfc[specs].to_dataarray().transpose('depth',...,'variable').coords
+                                                            ).transpose('variable',...,'depth').to_dataset(dim='variable')
+
+    else:
+        for i,speci in enumerate(specs):
+            xvfc[speci+'_diff'] = xr.DataArray(fm.Diffuse_record2(xvfc[speci].T,sigmaarray[:,i]/100/res,resolve='full').T,
+                                              coords = xvfc[speci].coords);
         
-        vfc_snow_even[spec+'_diff'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_cm[spec]/100,res)[0];
-        vfc_snow_even['sigma'+spec] = sigma_cm[spec]/100
-        
-        if spec in storage_diffusion_cm.keys():
-            sigma_storage_cm = (sigma_cm[spec]**(2) + storage_diffusion_cm[spec]**(2))**(1/2)   #d'après Dallmayre et al. (2024)
-            vfc_snow_even[spec+'_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_storage_cm/100,res)[0];
-            vfc_snow_even['sigma'+spec+'_stored'] = sigma_storage_cm/100
+    #     if spec in storage_diffusion_cm.keys():
+    #         sigma_storage_cm = (sigma_cm[spec]**(2) + storage_diffusion_cm[spec]**(2))**(1/2)   #d'après Dallmayre et al. (2024)
+    #         vfc_snow_even[spec+'_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_storage_cm/100,res)[0];
+    #         vfc_snow_even['sigma'+spec+'_stored'] = sigma_storage_cm/100
 
     # compute dexc if it was part of the input
-    if 'dD_diff' in vfc_snow_even.columns and 'd18O_diff' in vfc_snow_even.columns: 
-        vfc_snow_even['dexc_diff'] = vfc_snow_even['dD_diff'] - 8 * vfc_snow_even['d18O_diff']
-
-    # format of old output
-    #depthHL = vfc_snow_even.index
-    #d18O_even = vfc_snow_even['d18O_mix_noise']
-    #d18O_even_diff = vfc_snow_even['d18O_diff']
-    #date_even = vfc_snow_even['date']
-
-    if verbose is True:
-        # keep all working columns (including mixing and noise, and dD)
-        outcolumns = vfc_snow_even.columns
-    else:
-        outcolumns = [bob for bob in ['date','depth_we','rho',
-                                        'd18O_raw','dD_raw','dexc_raw',
-                                        'd18O','dD','dexc',
-                                        'd18O_diff', 'dD_diff','dexc_diff',
-                                        'd18O_diff2',
-                                        'sigmad18O','sigmadD',
-                                        'sigmad18O_stored']
-                                        if bob in vfc_snow_even.columns]
-
-    out = vfc_snow_even[outcolumns]
     
-    return out
+    if 'dD_diff' in list(xvfc.var()) and 'd18O_diff' in list(xvfc.var()): 
+        xvfc['dexc_diff'] = xvfc['dD_diff'] - 8 * xvfc['d18O_diff']
+        xvfc['dexc_raw_diff'] = xvfc['dD_raw_diff'] - 8 * xvfc['d18O_raw_diff']
 
-
-
-def VFC_and_spectra(df, core_resolution, noise_level, mixing_level, mixing_scale_m, noise_scale_m, vfcres=1e-3, fftres=0.025, repeat = 10):
-    
-    # res: resolution for the PSD computation. res must be fine enough to capture the resolution of the real core we are comparing with
-    
-    # vfcres: resolution for the vfc. vfcres must be fine enough to capture mixing and noise scale (1cm)
-    
-    spectra_10freq_diff = pd.DataFrame() ; spectra_10psd_diff = pd.DataFrame()
-
-    #if nl==0: repeat = 1 # no need to repeat if no random component
-        
-    for i_df in range(repeat):
-        
-        # VFC
-        
-        dfi = Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df['precipd18O'], 320, 
-                          noise_level=noise_level, mixing_level=mixing_level, mixing_scale_m = mixing_scale_m, noise_scale_m = noise_scale_m,
-                          res=vfcres)
-
-        # resample with icorda sampling scheme
-        #VFC = core_sample_emma(dfi,core_resolution)
-
-        VFC = core_sample_adrien(dfi,core_resolution)
-
-        # put on a regular grid for spectra computation
-        VFC_interp = df_interp(VFC,np.arange(min(VFC.index),max(VFC.index),fftres))
-        
-        # Spectrum
-
-        fs = 1/fftres
-
-        freq, psd = mtm_psd(VFC_interp['d18O'].dropna(),fs)
-        spectrum = pd.DataFrame({'freq': freq, 'psd': psd})
-        
-        freq_diff, psd_diff = mtm_psd(VFC_interp['d18O_diff'].dropna(),fs)
-        spectrum_diff = pd.DataFrame({'freq_diff': freq_diff, 'psd_diff': psd_diff})
-        
-        spectra_10freq_diff['freq_diff{}'.format(i_df)] = freq_diff
-        spectra_10psd_diff['psd_diff{}'.format(i_df)] = psd_diff
-    
-    # Average VFC and spectrum diff
-    spectra_10freq_diff['freq_diff_mean'] = spectra_10freq_diff.mean(axis=1)
-    spectra_10psd_diff['psd_diff_mean'] = spectra_10psd_diff.mean(axis=1)
-    
-    # Smooth spectrum
-    psd_sm, freq_sm = lsm.logsmooth(psd, freq, 0.05)[:2]  #juste le dernier car pas besoin d'en faire plein en non diffusé
-    spectrum_sm = pd.DataFrame({'freq_sm': freq_sm, 'psd_sm': psd_sm})
-    
-    psd_diff_mean_sm, freq_diff_mean_sm = lsm.logsmooth(np.array(spectra_10psd_diff['psd_diff_mean']), np.array(spectra_10freq_diff['freq_diff_mean']), 0.05)[:2]
-    spectrum_diff_mean_sm = pd.DataFrame({'freq_diff_mean_sm': freq_diff_mean_sm, 'psd_diff_mean_sm': psd_diff_mean_sm})
-    
-    # Merge
-    spectra = pd.concat([spectrum, spectrum_sm, spectra_10freq_diff, spectra_10psd_diff, spectrum_diff_mean_sm], axis=1)
-      
-    return VFC, spectra
-
-
-
+    return xvfc

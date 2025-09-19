@@ -6,9 +6,30 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm.notebook import tqdm
+import scipy
+
 
 
 # In[2]:
+
+def DensityHL_we(depthwe,rho,Tmean,accu):
+
+    # Just a wrapper for fm.densityHL that takes as input depth in mmwe
+    # There are probably more efficient ways to proceed...
+
+    depthsnow_uncompacted = depthwe*1000/rho # water depth is converted to uncompacted snow depth with the convertion factor 1000/rho
+    # this uncompacted snow depth will overshoot the actual depth
+    # this gives us an upperbound on the range over which to compute HerronLangway density profile
+    
+    depthwe_HL,rhod =  DensityHL(depthsnow_uncompacted,rho,Tmean,accu); #on calcule HL et la profondeur en we
+    
+    depthsnow = np.interp(depthwe,depthwe_HL,depthsnow_uncompacted)
+    rhod = np.interp(depthwe,depthwe_HL,rhod)
+
+    return depthsnow,rhod
+
+    
 
 def DensityHL(depth,rho_surface,T,bdot):
     
@@ -483,6 +504,72 @@ def Diffuse_record(dX, sigma_e):
         kernel = kernel/np.sum(kernel);
         rec = dX[ran];
         dX_diff[i] = np.nansum(rec*kernel); #<--- j'ai changé np.sum en np.nansum ici
+
+    return dX_diff
+
+
+
+# time to change everything to multi-D
+def Diffuse_record2(dX, sigma_e,resolve='full'):
+    
+    # a gaussian running window that works with variable lengths :-)
+
+    # sigma_e should be given in index size
+
+    n = len(dX); # n is the first index, assumed to be depth (requires to transpose dX beforehand)
+    
+
+    #Scale the diffusion length according to the resolution of the record. 
+    #sigma = sigma/res;
+    sigma = sigma_e
+
+    #dX_diff = copy.deepcopy(dX);
+
+    if resolve == 'full':
+        ind = range(n)
+        
+    elif resolve == 'coarse':
+        d = 10
+        ind = list(range(0,n,d))+[n-1]
+        
+    elif resolve == 'sigma':
+        j = 0
+        ind = []
+        while j < n:
+            ind.append(j)
+            j+= int(np.ceil(sigma[j]))
+        if n-1 not in ind: ind.append(n-1)
+
+    dX_diff = np.full((len(ind),*dX.shape[1:]),np.nan)
+
+    # this is just a running window with varying kernel size
+    # -> could be reimplemented with matrix operations
+
+    timebar = tqdm(list(enumerate(ind)),'Processing diffusion loop',colour='green')
+
+    ran0 = np.arange(len(dX)).repeat(np.prod(dX.shape[1:])).reshape(dX.shape)
+    ran0 = ran0.astype(float) # so we can set some entries to np.nan
+    
+    for j,i in timebar:
+        
+        imax = np.ceil(5 * sigma[i]);
+        
+        ran = ran0.copy()
+
+        relran = ran-i # relative range
+
+        relran[relran<-imax] = np.nan
+        relran[relran>+imax] = np.nan
+        relran[np.isnan(dX)] = np.nan # to avoid weighting nan values
+        kernel = np.exp(-(relran)**2./(2.*sigma[i]**2));
+        kernel = kernel/np.nansum(kernel,axis=0);
+        #rec = dX[ran].squeeze();
+        dX_diff[j] = np.nansum((kernel*dX),axis=0);
+        
+    f = scipy.interpolate.interp1d(ind,dX_diff.T,bounds_error=False)
+    dX_diff = f(np.arange(n)).T
+        
+    dX_diff[np.isnan(dX)] = np.nan # restore nan values
 
     return dX_diff
 

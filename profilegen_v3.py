@@ -23,15 +23,7 @@ import vfcdevel.logsmooth as lsm
 
 from scipy.interpolate import interp1d
 
-def read_species(Proxies):
-    
-    species = {}
-    for key in Proxies.columns:
-        for spec in ['d18O','dD','dexc']:
-            if spec in key:
-                species[key] = spec
 
-    return species
 
 def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
                storage_diffusion_cm = {} , verbose = False):

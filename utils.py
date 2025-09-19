@@ -4,6 +4,16 @@ import numpy as np
 import copy
 import scipy
 
+def read_species(Proxies):
+    
+    species = {}
+    for key in Proxies.columns:
+        for spec in ['d18O','dD','dexc']:
+            if spec in key:
+                species[key] = spec
+
+    return species
+
 def band_mask(n,dmin,dmax):
     dist = (np.add.outer(np.arange(n), -np.arange(n)))
     mask = np.logical_and(dist>=dmin,dist<dmax)
@@ -143,7 +153,8 @@ def block_average_OLD(df,res):
     # and output resolution (in meters)
     # returns the block average of the dataframe as the given resolution
 
-    newindex = np.arange(min(df.index),max(df.index),res/100)
+    #newindex = np.arange(min(df.index),max(df.index),res/100)
+    newindex = np.arange(0,max(df.index),res/100)
     df1 = df_interp(df,newindex,kind='next')
 
 
