@@ -22,12 +22,18 @@ Et ensuite, appeler les fonctions
 ```
 # load your favourite model output
 df = pd.read_csv('./vfcdevel/data/lmdz_DC.csv',index_col=0,parse_dates=True)
-df['precipd18O']-=4.1
+#df['precipd18O']-=4.1
 # create a virtual firn core from the model
-VFC = Profile_gen(df['decimalyear'],df['tp'],df['d18O_inter'],Tmean,350)
-plt.plot(VFC['d18O'])
+VFC = Profile_gen(df['decimalyear'],df['tsol'],df['tp'],df['precipd18O'],320)
+plt.plot(VFC['d18O_diff'])
 
 ```
+also available for era5
+````
+df = pd.read_csv('./vfcdevel/data/era5.csv',index_col=0,parse_dates=True)
+VFC = Profile_gen(df['decimalyear'],df['t2m'],df['tp'],df['t2m_d18O'],320)
+plt.plot(VFC['d18O_diff'])
+````
 Now you can compare it to your _real_ core
 
 ```
@@ -166,5 +172,23 @@ wavelets_fft_spectra(vfc2,'ICORDA',newversion=True)
 vfc = Profile_gen2(dfpaleo['decimalyear'],Tmean,dfpaleo['tp'],dfpaleo['d18O_inter']+np.nanmean(dficorda['d18O']),rho,res=1e-3,storage_diffusion_cm = 1.5)
 ```
 vfc aura deux colonnes en plus avec 'd18O_diff2' qui rajoute la diffusion du stockage et 'sigma18_storage'. Ça a l'air de faire aucune différence pour icorda. En fait ça change à peine seulement dans le premier 1 mètre.
+
+# update sept 3;
+On peut maintenant gérer dexc et d18O en parralèle avec
+```
+Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df[['tsol_dexc','tsol_d18O']],320, mixing_level=0., noise_level=0.,storage_diffusion_cm = 3)
+```
+(NB: les doubles [[ ]] dans la quatrième entrée. L'espèce est assignée automatiquement à d18O ou dexc (ou dD) en fonction de l'intitulé de la colonne. Le choix est printed pour vérification par l'utilisateur)
+Par conséquent, storage diffusion désormais être un entier (même diffusion sur les deux espèces d18O et dD) ou un dictionnaire de la forme ```{'d18O':sigma18_storage_cm,'dD':sigmaD_storage_cm}```.
+
+Tout est backward compatible avec une seule espèce, on peut donc aussi bien faire
+```
+Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df[['tsol_d18O']],320, mixing_level=0., noise_level=0.,storage_diffusion_cm = 3)
+```
+(une seule colonne) que
+```
+Profile_gen(df['decimalyear'],df['tsol'],df['tp_adjust'],df['tsol_d18O'],320, mixing_level=0., noise_level=0.,storage_diffusion_cm = 3)
+```
+comme avant.
 
 _to be continued..._

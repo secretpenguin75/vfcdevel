@@ -4,6 +4,16 @@ import numpy as np
 import copy
 import scipy
 
+def read_species(Proxies):
+    
+    species = {}
+    for key in Proxies.columns:
+        for spec in ['d18O','dD','dexc']:
+            if spec in key:
+                species[key] = spec
+
+    return species
+
 def band_mask(n,dmin,dmax):
     dist = (np.add.outer(np.arange(n), -np.arange(n)))
     mask = np.logical_and(dist>=dmin,dist<dmax)
@@ -72,6 +82,7 @@ def df_interp(df,newindex,kind='linear'):
     array2 = array_interp(newindex,oldindex,array,kind)
 
     df2 = pd.DataFrame(array2,index = newindex,columns = df.columns)
+    df2.index.name = df.index.name
 
     return df2
 
@@ -142,21 +153,25 @@ def block_average_OLD(df,res):
     # and output resolution (in meters)
     # returns the block average of the dataframe as the given resolution
 
-    newindex = np.arange(min(df.index),max(df.index),res/100)
+    #newindex = np.arange(min(df.index),max(df.index),res/100)
+    newindex = np.arange(0,max(df.index),res/100)
     df1 = df_interp(df,newindex,kind='next')
 
 
     df2 = copy.deepcopy(df1)
-    depth = np.array(df2.index)
+    index = np.array(df2.index)
 
-    df2.index.name = None
+    indexname = df2.index.name
+    
+    #df2.index.name = None # to avoid error in case the df.index is already called "depth" and since index name will be overwritten anyways
+    
+    df2['xxxxx'] = ( index // res) * res
 
+    out = df2.groupby('xxxxx').mean()
+
+    out.index.name = indexname
     
-    df2.index.name = None # to avoid error in case the df.index is already called "depth" and since index name will be overwritten anyways
-    
-    df2['depth'] = (depth // res) * res
-    
-    return df2.groupby('depth').mean()
+    return out
 
 
 def block_average_OLD3(df,res):

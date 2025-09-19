@@ -23,8 +23,10 @@ import vfcdevel.logsmooth as lsm
 
 from scipy.interpolate import interp1d
 
-def Profile_gen(Date, Temp, Tp, Precip_d18O, Precip_dexc, rho, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
-               storage_diffusion_cm = 0, verbose = False):
+
+
+def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+               storage_diffusion_cm = {} , verbose = False):
     
     # Generates the profile of isotopic composition of a snow column
     #
@@ -106,8 +108,32 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, Precip_dexc, rho, mixing_level=0, n
     #depth_raw_mean = depth_raw[:-1] + np.diff(depth_raw)/2; # middle grid points # I don't use this at the moment
 
     # Preparing VFC df
+
+    # Proxies can be either a pd.Series (df_lmdz['precipd18O']) OR a dataframe (df_lmdz[['precipd18O','tsol_d18O','tsol_dD',...]])
+    # Proxies contains columns for d18O, dD (support for 17O to be added later)
+    # in order to identify which species is represented (for diffusion) we keep track of it using Pandas Dataframe attrs (attributes)
+    # the Proxies.attrs['species'] dictionary as an isotopic species (d18O or dexc or dD) associated to each columns in Proxies
+
+    if type(Proxies) == pd.Series:
+        
+        Proxies = pd.DataFrame(Proxies)
+
+    if 'species' in Proxies.attrs:
+        species = Proxies.attrs['species']
+        
+    else:
+        species = read_species(Proxies)
+        print('Species assigned automatically as:')
+        print(species)
+            
+    proxies_dic = {species[key]+'_raw':np.array(value) for key,value in Proxies.items()}
+    species = list(species.values())
+
+    # handle the case when storage diffusion cm is an integer
+    if type(storage_diffusion_cm) in [int,float]:
+        storage_diffusion_cm = {spec:storage_diffusion_cm for spec in ['d18O','dD']}
     
-    vfc = pd.DataFrame({'date':Date.to_numpy(),'d18O_raw':np.array(Precip_d18O),'dexc_raw':np.array(Precip_dexc)},index=depth_raw)
+    vfc = pd.DataFrame({'date':Date.to_numpy()} | proxies_dic ,index=depth_raw)
     
     vfc = vfc.sort_index() # place surface depth = 0 at the begining
 
@@ -171,11 +197,9 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, Precip_dexc, rho, mixing_level=0, n
     
     #d18O_noise_Laepple = np.sqrt(1. - noise_level)*d18O_ini + np.sqrt(noise_level)*wnd18O
 
-    vfc_even['d18O_noise'] = np.sqrt(1. - noise_level)*vfc_even['d18O_raw'] + np.sqrt(noise_level)*wn*np.nanstd(vfc_even['d18O_raw']) 
-    vfc_even['d18O_noise'] += (1-np.sqrt(1.-noise_level))*np.nanmean(vfc_even['d18O_raw'])
-                                                                                                                                                                            
-    vfc_even['dexc_noise'] = np.sqrt(1. - noise_level)*vfc_even['dexc_raw'] + np.sqrt(noise_level)*wn*np.nanstd(vfc_even['dexc_raw']) 
-    vfc_even['dexc_noise'] += (1-np.sqrt(1.-noise_level))*np.nanmean(vfc_even['dexc_raw'])
+    for spec in species:
+        vfc_even[spec+'_noise'] = np.sqrt(1. - noise_level)*vfc_even[spec+'_raw'] + np.sqrt(noise_level)*wn*np.nanstd(vfc_even[spec+'_raw']) \
+                                        + (1-np.sqrt(1.-noise_level))*np.nanmean(vfc_even[spec+'_raw'])
 
     # the series above should by construction have the same std and mean as the original series
     
@@ -184,23 +208,16 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, Precip_dexc, rho, mixing_level=0, n
 
     mixing_scale_we = mixing_scale_m/1000*rho # convert input mixing scale in snow depth to water equivalent depth
     mixing_scale = int(mixing_scale_we/reswe) # convert mixing scale to 
-    
-    vfc_even['d18O_mix'] = vfc_even['d18O_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
 
-    vfc_even['dexc_mix'] = vfc_even['dexc_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
+    for spec in species:
+        vfc_even[spec+'_mix'] = vfc_even[spec+'_noise'].rolling(window=mixing_scale, center=True,min_periods=1).mean().to_numpy()  # d18O-rolling average of 4 cm along the core (40 points on the 1mm regular grid)
     
     ################################################################# VFC[d18O ini & white noise & Mixing]
     ############################################################
-    
-    d18O_mix_noise =  (1.-mixing_level) * vfc_even['d18O_noise'] + mixing_level * vfc_even['d18O_mix']
-    
-    dexc_mix_noise =  (1.-mixing_level) * vfc_even['dexc_noise'] + mixing_level * vfc_even['dexc_mix']
-    
-    vfc_even['d18O'] = d18O_mix_noise.to_numpy()
 
-    vfc_even['dexc'] = dexc_mix_noise.to_numpy()
-
-    vfc_even['dD'] = 8*vfc_even['d18O']+vfc_even['dexc']
+    for spec in species:
+    
+        vfc_even[spec] =  (1.-mixing_level) * vfc_even[spec+'_noise'] + mixing_level * vfc_even[spec+'_mix']
 
     # PHYSICAL PARAMETERS
     ############# Now invoque Herron Langway model to obtain snow depth
@@ -229,34 +246,30 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, Precip_dexc, rho, mixing_level=0, n
     
     rhod = vfc_snow_even['rho'].to_numpy()
     depthHL = vfc_snow_even.index.to_numpy()
-    
-    sigma18,sigmaD = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
 
-    #storage_diffusion_cm is an input of profile_gen!!
-    #storage_diffusion_cm = 1.5 #for ICORDA
-    #storage_diffusion_cm = 5.6 #for subglacior
+    sigma_cm = {}
+    sigma_cm['d18O'],sigma_cm['dD'] = fm.Diffusionlength_OLD(depthHL,rhod,Tmean,650,accu);
+
+    # time to compute dD if it is not in the input
+
+    if ('d18O' in species and 'dexc' in species) and 'dD' not in species:
+        vfc_snow_even['dD'] = 8*vfc_snow_even['d18O']+vfc_snow_even['dexc']
+        species+= ['dD']
+
+    # now we can diffuse
+    for spec in list(set(['d18O','dD']) & set(species)):
         
-    # #POUR SUGBLACIOR STORAGE = 5 YEARS
-    #sigma18_15 = (sigma18_19**(2) + 5.6**(2))**(1/2)
-    #sigma18 = sigma18_15
-    
-    vfc_snow_even['d18O_diff'] = fm.Diffuse_record_OLD(vfc_snow_even['d18O'],sigma18/100,res)[0];
+        vfc_snow_even[spec+'_diff'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_cm[spec]/100,res)[0];
+        vfc_snow_even['sigma'+spec] = sigma_cm[spec]/100
+        
+        if spec in storage_diffusion_cm.keys():
+            sigma_storage_cm = (sigma_cm[spec]**(2) + storage_diffusion_cm[spec]**(2))**(1/2)   #d'après Dallmayre et al. (2024)
+            vfc_snow_even[spec+'_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_storage_cm/100,res)[0];
+            vfc_snow_even['sigma'+spec+'_stored'] = sigma_storage_cm/100
 
-    vfc_snow_even['dD_diff'] = fm.Diffuse_record_OLD(vfc_snow_even['dD'],sigmaD/100,res)[0];
-
-    vfc_snow_even['dexc_diff'] = vfc_snow_even['dD_diff'] - 8 * vfc_snow_even['d18O_diff']
-
-
-    if storage_diffusion_cm>0:
-        sigma18_storage = (sigma18**(2) + storage_diffusion_cm**(2))**(1/2)   #d'après Dallmayre et al. (2024)
-        vfc_snow_even['d18O_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even['d18O'],sigma18_storage/100,res)[0];
-        vfc_snow_even['sigma18_stored'] = sigma18_storage/100
-
-
-
-    vfc_snow_even['sigma18'] = sigma18/100
-
-    vfc_snow_even['sigmaD'] = sigmaD/100
+    # compute dexc if it was part of the input
+    if 'dD_diff' in vfc_snow_even.columns and 'd18O_diff' in vfc_snow_even.columns: 
+        vfc_snow_even['dexc_diff'] = vfc_snow_even['dD_diff'] - 8 * vfc_snow_even['d18O_diff']
 
     # format of old output
     #depthHL = vfc_snow_even.index
@@ -268,7 +281,14 @@ def Profile_gen(Date, Temp, Tp, Precip_d18O, Precip_dexc, rho, mixing_level=0, n
         # keep all working columns (including mixing and noise, and dD)
         outcolumns = vfc_snow_even.columns
     else:
-        outcolumns = ['date','d18O_raw','dexc_raw','d18O', 'dexc', 'rho', 'depth_we', 'd18O_diff', 'dexc_diff','sigma18','sigmaD']
+        outcolumns = [bob for bob in ['date','depth_we','rho',
+                                        'd18O_raw','dD_raw','dexc_raw',
+                                        'd18O','dD','dexc',
+                                        'd18O_diff', 'dD_diff','dexc_diff',
+                                        'd18O_diff2',
+                                        'sigmad18O','sigmadD',
+                                        'sigmad18O_stored']
+                                        if bob in vfc_snow_even.columns]
 
     out = vfc_snow_even[outcolumns]
     
