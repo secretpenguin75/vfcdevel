@@ -123,7 +123,7 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
         
     else:
         species = read_species(Proxies)
-        print('Species assigned automatically as:')
+        #print('Species assigned automatically as:')
         print(species)
             
     proxies_dic = {species[key]+'_raw':np.array(value) for key,value in Proxies.items()}
@@ -180,7 +180,7 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
     # same as above but without for loop 
     # should it be the same seed for all species of a different one for Dexc??
     
-    f = interp1d(np.arange(0,len(vfc_even)+noise_scale,noise_scale),
+    f = scipy.interpolate.interp1d(np.arange(0,len(vfc_even)+noise_scale,noise_scale),
                  np.random.normal(0,1,len(np.arange(0,len(vfc_even)+noise_scale,noise_scale))),
                  kind='previous')
     

@@ -154,7 +154,9 @@ def block_average_OLD(df,res):
     # returns the block average of the dataframe as the given resolution
 
     #newindex = np.arange(min(df.index),max(df.index),res/100)
-    newindex = np.arange(0,max(df.index),res/100)
+    
+    newindex = np.arange(0.,max(df.index),res/100)
+    
     df1 = df_interp(df,newindex,kind='next')
 
 
