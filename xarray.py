@@ -36,7 +36,7 @@ def dflipds(xrdataset):
     return out
 
 
-def dflip(xrarray):
+def dflip(xrarray,olddim):
 
     xrin = xrarray
 
