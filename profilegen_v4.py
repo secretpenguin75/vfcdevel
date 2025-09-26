@@ -344,7 +344,8 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_l
 
     # compute dexc if it was part of the input
     
-    if 'dD_diff' in list(xvfc.var()) and 'd18O_diff' in list(xvfc.var()): 
+    if 'dD_diff' in list(xvfc.var()) and 'd18O_diff' in list(xvfc.var()):
+        xvfc['dexc'] = xvfc['dD'] - 8 * xvfc['d18O']
         xvfc['dexc_diff'] = xvfc['dD_diff'] - 8 * xvfc['d18O_diff']
         xvfc['dexc_raw_diff'] = xvfc['dD_raw_diff'] - 8 * xvfc['d18O_raw_diff']
 

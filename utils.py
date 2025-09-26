@@ -370,7 +370,7 @@ def float_time_interp(float_bins,float_list,time_list):
     
     return out
 
-def time_float_interp(time_bins,time_list,float_list):
+def time_float_interp(time_bins,time_list,float_list,left=None,right=None):
 
     # time list can be: a list of datetime, a list of date, a list of timestamps...
     
@@ -379,7 +379,7 @@ def time_float_interp(time_bins,time_list,float_list):
     seconds_list = list(map(to_seconds,time_list))
     seconds_bins = list(map(to_seconds,time_bins))
 
-    out = np.interp(seconds_bins,seconds_list,float_list)
+    out = np.interp(seconds_bins,seconds_list,float_list,left=left,right=right)
     
     return out
 
@@ -390,7 +390,7 @@ def transfer_tp(TP,newindex):
 
     cumprecip = TP.cumsum()
 
-    tp = np.diff(time_float_interp(newindex,cumprecip.index,cumprecip.values),prepend=np.nan)
+    tp = np.diff(time_float_interp(newindex,cumprecip.index,cumprecip.values,left=np.nan,right=np.nan),prepend=np.nan)
 
     return tp
 
