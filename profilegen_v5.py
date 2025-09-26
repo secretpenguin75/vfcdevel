@@ -53,7 +53,7 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
     
     M = Marray # new! we keep track of the mass anomaly in each layer
     
-    #h = df['h'] # varying saturation
+    #h = df['h'] # varying saturatio1
     h=0.8
     
     k = fm.kdiff('Cappa',spec,0.4)
@@ -83,8 +83,7 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
 
     return isoarraysubl,TE
     
-
-def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+    def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
                storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3):
 
 
@@ -354,56 +353,42 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_l
     xvfc = xvfc.interp({'depth':np.arange(0,np.max(depthsnow),res)},method='linear')
 
     xvfc['te'] = xvfc['te_acc'].diff(dim='depth')
-    xvfc['te'][:,0] = xvfc['te_acc'][:,0].values
+    xvfc['te'].transpose('depth',...).loc[0] = xvfc['te_acc'].sel(depth=0).values
+
 
     xvfc['total_mass'] = xvfc['total_mass_acc'].diff(dim='depth')
-    xvfc['total_mass'][:,0] = xvfc['total_mass_acc'][:,0].values
+    xvfc['total_mass'].transpose('depth',...).loc[0] = xvfc['total_mass_acc'].sel(depth=0).values
+
 
     del xvfc['te_acc']
     del xvfc['total_mass_acc']
     
     #xvfc['mass_anomaly'] = xvfc['total_mass']/xvfc0['total_mass'].values
 
-    sigma_cm = {}
-    sigma_cm['d18O'],sigma_cm['dD'] = fm.Diffusionlength_OLD(xvfc['depth'].values,xvfc['rhoHL'].values,Tmean,650,accu);
+    sigma18,sigmaD = fm.Diffusionlength_OLD(xvfc['depth'].values,xvfc['rhoHL'].values,Tmean,650.,accu);
 
-    xvfc['sigma18'] = xr.DataArray(sigma_cm['d18O'],coords={'depth':xvfc.coords['depth']})
-    xvfc['sigmaD'] = xr.DataArray(sigma_cm['dD'],coords={'depth':xvfc.coords['depth']})
+    xvfc['sigma18'] = xr.DataArray(sigma18,coords={'depth':xvfc.coords['depth']})
+    xvfc['sigmaD'] = xr.DataArray(sigmaD,coords={'depth':xvfc.coords['depth']})
 
 
-    # attribute species with its diffusion profile
-    # maybe there is a more elegant way of doing this
-    # perhaps with xvfc['d18O'].sigma = 'sigma18' ?
-    # now we can diffuse
-    specs = [] # columns to diffuse
-    sigmas = []
-    for speci,sigmai in [('d18O','sigma18'),('dD','sigmaD')]:
+    specbar = tqdm([('d18O','sigma18'),('dD','sigmaD')],'Applying diffusion',colour='green')
+    
+    #for speci,sigmai in [('d18O','sigma18'),('dD','sigmaD')]:
+    for speci,sigmai in specbar:
+        
         for column in xvfc.var(): # scan variables and assign species one more time
             if speci in column:
-                specs.append(column)
-                sigmas.append(sigmai)
-    
-    sigmaarray = np.stack([xvfc[sigmai] for sigmai in sigmas],axis=1)
-
-
-    if False:
-        # Testing out ways to diffuse; each column one by one or all columns in parralel
-        # odly it seems that all columns in parralel is slower
-
-        # put depth first for the loop over depth in Diffuse_record
-        # and put variable last so each species can pick up its own column in sigmaarray
-    
-        xvfc[[speci+'_diff' for speci in specs]] =  xr.DataArray(Diffuse_record2(xvfc[specs].to_dataarray().transpose('depth',...,'variable'),
-                                                   sigmaarray/100/res,resolve='full'),
-                                            coords = xvfc[specs].to_dataarray().transpose('depth',...,'variable').coords
-                                                            ).transpose('variable',...,'depth').to_dataset(dim='variable')
-
-    else:
-        for i,speci in enumerate(specs):
-
-            xvfc[speci+'_diff'] = xr.DataArray(fm.Diffuse_record2(xvfc[speci].T,sigmaarray[:,i]/100/res,resolve='full').T,
-                                              coords = xvfc[speci].coords);
-        
+                
+                # with this matrix approach I am still figuring out a way to treat the surface boundary
+                # (with nans on top) so the diffusion weighting ignores the nan
+                # for now do fillna(0) to actually get a result and restore nans with .where()
+                # however since sigma is less than 1mm up to 5mm depth the error is really small
+                # but we need to control it to try and avoid any artifact in surface snow
+                # work in progress
+                
+                xvfc[column+'_diff'] = xr.DataArray(fm.Diffuse_record(xvfc[column].fillna(0).transpose(...,'depth').values,xvfc[sigmai].values/100/res),
+                                                    coords=xvfc[column].transpose(...,'depth').coords).where(np.isfinite(xvfc[column]))
+            
     #     if spec in storage_diffusion_cm.keys():
     #         sigma_storage_cm = (sigma_cm[spec]**(2) + storage_diffusion_cm[spec]**(2))**(1/2)   #d'après Dallmayre et al. (2024)
     #         vfc_snow_even[spec+'_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_storage_cm/100,res)[0];

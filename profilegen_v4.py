@@ -326,14 +326,14 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_l
         # put depth first for the loop over depth in Diffuse_record
         # and put variable last so each species can pick up its own column in sigmaarray
     
-        xvfc[[speci+'_diff' for speci in specs]] =  xr.DataArray(Diffuse_record2(xvfc[specs].to_dataarray().transpose('depth',...,'variable'),
+        xvfc[[speci+'_diff' for speci in specs]] =  xr.DataArray(Diffuse_record_OLD2(xvfc[specs].to_dataarray().transpose('depth',...,'variable'),
                                                    sigmaarray/100/res,resolve='full'),
                                             coords = xvfc[specs].to_dataarray().transpose('depth',...,'variable').coords
                                                             ).transpose('variable',...,'depth').to_dataset(dim='variable')
 
     else:
         for i,speci in enumerate(specs):
-            xvfc[speci+'_diff'] = xr.DataArray(fm.Diffuse_record2(xvfc[speci].T,sigmaarray[:,i]/100/res,resolve='full').T,
+            xvfc[speci+'_diff'] = xr.DataArray(fm.Diffuse_record_OLD2(xvfc[speci].T,sigmaarray[:,i]/100/res,resolve='full').T,
                                               coords = xvfc[speci].coords);
         
     #     if spec in storage_diffusion_cm.keys():

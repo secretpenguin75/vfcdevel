@@ -447,8 +447,25 @@ def Diffusionlength(depth,rho, T, P, bdot ):
 
 # In[10]:
 
+def Diffuse_record(signal,sigma_e):
 
-def Diffuse_record_OLD( dX, sigma, res ):
+    # applies diffusion profile sigma_e (1-D depth profile)
+    # to multi-D signal, we only need that 'depth' be the last axis in signal
+    # for example if for a xr dataarray use signal = xvfc['d18O_raw'].transpose(...,'depth').values
+    
+    dist2d = np.add.outer(np.arange(signal.shape[-1]),-np.arange(signal.shape[-1])).astype(float)
+    sigma2d = np.repeat(sigma_e,len(dist2d)).reshape(dist2d.shape).T
+    
+    weight = np.diag([1.]*len(dist2d)) # this initial weight is good when sigma=0
+    mask = (sigma2d!=0)
+    weight[mask] = np.exp(-(dist2d[mask])**2./(2.*sigma2d[mask]**2))
+    weight /= np.sum(weight,axis=0)
+    out = signal@weight
+    
+    return out
+
+
+def Diffuse_record_OLDM( dX, sigma, res ):
 
     n = len(dX);
 
@@ -479,7 +496,7 @@ def Diffuse_record_OLD( dX, sigma, res ):
 
     return dX_diff,HF
     
-def Diffuse_record(dX, sigma_e):
+def Diffuse_record_OLD(dX, sigma_e):
     
     # a gaussian running window that works with variable lengths :-)
 
@@ -509,8 +526,11 @@ def Diffuse_record(dX, sigma_e):
 
 
 
+
+
+
 # time to change everything to multi-D
-def Diffuse_record2(dX, sigma_e,resolve='full'):
+def Diffuse_record_OLD2(dX, sigma_e,resolve='full'):
     
     # a gaussian running window that works with variable lengths :-)
 

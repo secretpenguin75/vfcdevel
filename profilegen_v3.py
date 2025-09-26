@@ -259,12 +259,12 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, mixing_level=0, noise_level=0, mix
     # now we can diffuse
     for spec in list(set(['d18O','dD']) & set(species)):
         
-        vfc_snow_even[spec+'_diff'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_cm[spec]/100,res)[0];
+        vfc_snow_even[spec+'_diff'] = fm.Diffuse_record_OLDM(vfc_snow_even[spec],sigma_cm[spec]/100,res)[0];
         vfc_snow_even['sigma'+spec] = sigma_cm[spec]/100
         
         if spec in storage_diffusion_cm.keys():
             sigma_storage_cm = (sigma_cm[spec]**(2) + storage_diffusion_cm[spec]**(2))**(1/2)   #d'après Dallmayre et al. (2024)
-            vfc_snow_even[spec+'_diff2'] = fm.Diffuse_record_OLD(vfc_snow_even[spec],sigma_storage_cm/100,res)[0];
+            vfc_snow_even[spec+'_diff2'] = fm.Diffuse_record_OLDM(vfc_snow_even[spec],sigma_storage_cm/100,res)[0];
             vfc_snow_even['sigma'+spec+'_stored'] = sigma_storage_cm/100
 
     # compute dexc if it was part of the input
