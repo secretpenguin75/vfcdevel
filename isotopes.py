@@ -8,7 +8,7 @@ def model_to_obs_fit(model,obs):
     # if model is in hourly time step, and obs in daily
     # make sure to average the model to daily timesteps first
     
-    x = time_float_interp(obs.index,model.index,model.values)
+    x = time_float_interp(obs.index,model.index,model.values,left=np.nan,right=np.nan)
     y = obs.values
     ind = np.logical_and(np.isfinite(x),np.isfinite(y))
     a,b = scipy.stats.linregress(x[ind],y[ind])[:2]
@@ -16,18 +16,19 @@ def model_to_obs_fit(model,obs):
     plt.plot(x,a*x+b,color='red')
     return a,b
 
-def temp_to_iso_DC(Temp,iso,fit='era5'):
+def temp_to_iso_DC(Temp,iso,fit='era5',dfit='default'):
 
     # input: Temperature in Kelvin
 
     #Definition of the isotopic composition - temperature relationship
+    
     if fit=='Mathieu':
         alpha = 0.46; 
         beta = -32;
         
     if fit=='era5':
-        alpha = 0.49
-        beta=-31
+        alpha = 0.45
+        beta=-33
 
     if fit=='lmdz':
         alpha = 0.38
@@ -35,12 +36,28 @@ def temp_to_iso_DC(Temp,iso,fit='era5'):
     
     d18O = alpha*(Temp-273.15)+beta
 
-    #dexc = -0.68*d18O-25;
-    #dexc = -1.04*d18O-43
-    dexc = -0.5*d18O-15.7 # Mathieu's fit
+    # from surf_cycle_gen.m
+    # d18O_s = 0.46*Temp -32;
+    # dexc_s = -0.68*d18O_s-25; # this is the value for "annual weighted' in Dreossi 2024
+    # O17exc_s = 1.5*d18O_s + 103;
+    
+    #dexc = -0.5*d18O-15.7 # Mathieu's fit (excerpt from code, couldnt find paper citation)
+    
+    #dexc = -1.35 * d18O - 61 # Dreossi 2024 (2008-2017)
+
+    if dfit =='weighted':
+        
+        dexc = -0.68 * d18O - 25 # this is the value for "annual weighted' in Dreossi 2024
+
+    if dfit == 'default':
+        
+        dexc = -1.04 * d18O - 43 # my fit with dexc > 0
     
     if iso=='18O':
         out = d18O
+
+    if iso=='dexc':
+        out = dexc
 
     if iso=='D':
         out = dexc+8*d18O
@@ -49,8 +66,7 @@ def temp_to_iso_DC(Temp,iso,fit='era5'):
         O17exc = 1.5*d18O + 103;
         out = O17exc
 
-    if iso=='dexc':
-        out = dexc
+
         
     return out
 

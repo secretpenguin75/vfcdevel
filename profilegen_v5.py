@@ -83,8 +83,8 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
 
     return isoarraysubl,TE
     
-    def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
-               storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3):
+def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+               storage_diffusion_cm = None , verbose = True, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3):
 
 
     reswe = res*rho/1000 # the working resolution for water depth should be smaller by a factor 1000/rho than the target resolution for snow
@@ -97,7 +97,7 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
     #Prec = Prec/rho*997/1000 #Conversion to meters and snow equivalent
     #Tp.loc[(Tp<=0)] = 0 #Negative precipitation cannot be taken into account. In the case of true accumulation, where negative values could occur, changes to the script need to be made.
     
-    print('accu =', accu)
+    if verbose: print('accu =', accu)
 
     ## Compute precipitation intermittent depth serie  
 
@@ -120,8 +120,9 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
         Proxies = pd.DataFrame(Proxies)
 
     speciesmap = read_species(Proxies)
-    print('Species assigned automatically as:')
-    print(speciesmap)
+    if verbose:
+        print('Species assigned automatically as:')
+        print(speciesmap)
     species = list(speciesmap.values())
     
     Proxies = Proxies.rename(columns = speciesmap)
@@ -346,22 +347,24 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
 
     # WARNING: it seems like we are loosing a bit of mass (and no evap?) with this method
     # will have to be refined
-    
-    xvfc['te_acc'] = xvfc['te'].cumsum(dim='depth')
-    xvfc['total_mass_acc'] = xvfc['total_mass'].cumsum(dim='depth')
+
+    if Te is not None:
+        xvfc['te_acc'] = xvfc['te'].cumsum(dim='depth')
+        xvfc['total_mass_acc'] = xvfc['total_mass'].cumsum(dim='depth')
 
     xvfc = xvfc.interp({'depth':np.arange(0,np.max(depthsnow),res)},method='linear')
 
-    xvfc['te'] = xvfc['te_acc'].diff(dim='depth')
-    xvfc['te'].transpose('depth',...).loc[0] = xvfc['te_acc'].sel(depth=0).values
+    if Te is not None:
+        xvfc['te'] = xvfc['te_acc'].diff(dim='depth')
+        xvfc['te'].transpose('depth',...).loc[0] = xvfc['te_acc'].sel(depth=0).values
 
 
-    xvfc['total_mass'] = xvfc['total_mass_acc'].diff(dim='depth')
-    xvfc['total_mass'].transpose('depth',...).loc[0] = xvfc['total_mass_acc'].sel(depth=0).values
+        xvfc['total_mass'] = xvfc['total_mass_acc'].diff(dim='depth')
+        xvfc['total_mass'].transpose('depth',...).loc[0] = xvfc['total_mass_acc'].sel(depth=0).values
 
 
-    del xvfc['te_acc']
-    del xvfc['total_mass_acc']
+        del xvfc['te_acc']
+        del xvfc['total_mass_acc']
     
     #xvfc['mass_anomaly'] = xvfc['total_mass']/xvfc0['total_mass'].values
 
@@ -371,7 +374,7 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
     xvfc['sigmaD'] = xr.DataArray(sigmaD,coords={'depth':xvfc.coords['depth']})
 
 
-    specbar = tqdm([('d18O','sigma18'),('dD','sigmaD')],'Applying diffusion',colour='green')
+    specbar = tqdm([('d18O','sigma18'),('dD','sigmaD')],'Applying diffusion',colour='green',leave = verbose)
     
     #for speci,sigmai in [('d18O','sigma18'),('dD','sigmaD')]:
     for speci,sigmai in specbar:
