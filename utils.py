@@ -4,10 +4,10 @@ import numpy as np
 import copy
 import scipy
 
-def read_species(Proxies):
-    
+def read_species(columns):
+
     species = {}
-    for key in Proxies.columns:
+    for key in columns:
         for spec in ['d18O','dD','dexc']:
             if spec in key:
                 species[key] = spec

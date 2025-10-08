@@ -83,7 +83,7 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
 
     return isoarraysubl,TE
     
-    def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
+def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
                storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3):
 
 
