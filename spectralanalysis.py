@@ -45,6 +45,22 @@ def get_SNR(S,P):
     
     return C,N,SNR
 
+def mtm_psd2(signal,fs = 1.,detrend = True,NW = 2.5):
+    # a simple wrapper for nitime multi-taper-method-psd
+    
+    # linear detrending
+    if detrend:
+        xs = np.array(range(len(signal)))
+        a,b = scipy.stats.linregress(xs, signal, alternative='two-sided')[:2]
+        trend = a*xs+b
+        signal -= trend
+    
+    ff,psd = nitime.algorithms.multi_taper_psd(
+    signal,NW = NW,adaptive=False, jackknife=False, Fs = fs, sides = 'onesided'
+    )[:2]
+        
+    return ff,psd
+
 def mtm_psd(series,fs = None,detrend = True,NW = 2.5):
     # a simple wrapper for nitime multi-taper-method-psd
 

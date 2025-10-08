@@ -91,6 +91,7 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_l
     #Tp.loc[(Tp<=0)] = 0 #Negative precipitation cannot be taken into account. In the case of true accumulation, where negative values could occur, changes to the script need to be made.
     
     print('accu =', accu)
+    print('tmean =',np.nanmean(Temp))
 
     ## Compute precipitation intermittent depth serie  
 
@@ -113,7 +114,7 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_l
         Proxies = pd.DataFrame(Proxies)
 
     speciesmap = read_species(Proxies)
-    print('Species assigned automatically as:')
+    #print('Species assigned automatically as:')
     print(speciesmap)
     species = list(speciesmap.values())
     
@@ -343,7 +344,8 @@ def Profile_gen(Date, Temp, Tp, Proxies, rho, Te = None, mixing_level=0, noise_l
 
     # compute dexc if it was part of the input
     
-    if 'dD_diff' in list(xvfc.var()) and 'd18O_diff' in list(xvfc.var()): 
+    if 'dD_diff' in list(xvfc.var()) and 'd18O_diff' in list(xvfc.var()):
+        xvfc['dexc'] = xvfc['dD'] - 8 * xvfc['d18O']
         xvfc['dexc_diff'] = xvfc['dD_diff'] - 8 * xvfc['d18O_diff']
         xvfc['dexc_raw_diff'] = xvfc['dD_raw_diff'] - 8 * xvfc['d18O_raw_diff']
 
