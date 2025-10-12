@@ -8,6 +8,8 @@ import pywt
 
 import matplotlib.pyplot as plt
 
+import vfcdevel.logsmooth as lsm
+
 def PSD_SP(df,fs = None):
     
     # takes an input df and returns the mean PSD, PSD of mean and PSD's of columns
@@ -61,7 +63,7 @@ def mtm_psd2(signal,fs = 1.,detrend = True,NW = 2.5):
         
     return ff,psd
 
-def mtm_psd(series,fs = None,detrend = True,NW = 2.5):
+def mtm_psd(series,fs = None,detrend = True,NW = 2.5,logsmooth = False):
     # a simple wrapper for nitime multi-taper-method-psd
 
     dd = 365.25
@@ -90,6 +92,9 @@ def mtm_psd(series,fs = None,detrend = True,NW = 2.5):
     ff,psd = nitime.algorithms.multi_taper_psd(
     signal,NW = NW,adaptive=False, jackknife=False, Fs = fs, sides = 'onesided'
     )[:2]
+
+    if logsmooth:
+        psd,ff = lsm.logsmooth(psd,ff,0.05)[:2]
         
     return ff,psd
 

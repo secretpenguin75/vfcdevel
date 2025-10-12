@@ -39,7 +39,7 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
     # evapi = evaporation at step i
 
     #totevapi = Evap.iloc[i]
-    #tempi = Temp.iloc[i]
+    #tempi = Tatm.iloc[i]
     
     spec = dspec[1:] # remove d prefix
 
@@ -83,10 +83,14 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
 
     return isoarraysubl,TE
     
-def Profile_gen4(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_level=0, noise_level=0, mixing_scale_m = 40*1e-3, noise_scale_m = 10*1e-3, res = 1e-3,
-               storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3,df_surf = None,Tsol = None):
+def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res = 1e-3,
+               storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3,df_surf = None,surf_depth_m = 1e-2,Tsol = None):
 
 
+    # parameters to be reintroduced later:
+    # noise_scale_m
+    # mixing_level
+    # noise_level
     
     reswe = res*rho/1000 # the working resolution for water depth should be smaller by a factor 1000/rho than the target resolution for snow
 
@@ -275,6 +279,10 @@ def Profile_gen4(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_level=0, noise_
         indT = coolvars.index('tfirn')
         indiso = [coolvars.index(iso) for iso in ['d18O','dD','d18O_raw','dD_raw']]
 
+        # vertical index of surface
+        indmix = np.argmin(np.abs(depthsnow-mixing_scale_m))
+        indsurf = np.argmin(np.abs(depthsnow-surf_depth_m))
+
         # index for which we have surface values
         if df_surf is not None:
             surfindexer = list(Date.get_indexer(df_surf.index,method='nearest'))
@@ -310,15 +318,17 @@ def Profile_gen4(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_level=0, noise_
             ########################################################
             
             # Impose MIXING on isotopes only
-    
-            logvfci[depthsnow<mixing_scale_m][:,indiso] = np.nanmean(logvfci[depthsnow<mixing_scale_m][:,indiso],axis=0)
 
-            
+            if np.nansum(np.isfinite(logvfci[:indmix,indiso]))>0: # to avoid sum of nan slice error at the beginning of the vfc construction
+                logvfci[:indmix,indiso] = np.nanmean(logvfci[:indmix,indiso],axis=0)
+       
             # Impose surface snow:
             if not df_surf is None:
                 if i in surfindexer:
                     for dspec in list(set(['d18O','dD']) & set(species)):
-                        logvfci[depthsnow<1e-2,coolvars.index(dspec)] = df_surf[surfspeciesmap[dspec]].iloc[surfindexer.index(i)]
+                        # impose surface snow in the first layers up to surf_depth_m
+                        # nb if mix depth is greater than surface depth impose surface snow down to mixing depth
+                        logvfci[:max(indsurf,indmix),coolvars.index(dspec)] = df_surf[surfspeciesmap[dspec]].iloc[surfindexer.index(i)]
 
             # update temperature profile
             Ti = temperature_step(Ti,Tdepth,Tsol.iloc[i],D,dt,cc) # temperature step computed on an independant depth axis (<epaisseur de peau)
@@ -337,7 +347,7 @@ def Profile_gen4(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_level=0, noise_
                     ind = coolvars.index(dspec)
                     
                     #subl_depth_we = subl_depth_m*rho/1000
-                    logvfci[:,ind],TEi = sublimation_step(depthsnow,logvfci[:,indM],logvfci[:,ind],dspec,Temp.iloc[i],Te.iloc[i],subl_depth_m,sublprofile = 'exponential')
+                    logvfci[:,ind],TEi = sublimation_step(depthsnow,logvfci[:,indM],logvfci[:,ind],dspec,Tatm.iloc[i],Te.iloc[i],subl_depth_m,sublprofile = 'exponential')
                 logvfci[:,indE] = TEi
                 logvfci[:,indM] -= TEi
                     
@@ -375,7 +385,7 @@ def Profile_gen4(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_level=0, noise_
     
     # TIME TO SWITCH from even water depth array to even depth array in snow depth
 
-    xvfcold = copy.deepcopy(xvfc)
+    #xvfcold = copy.deepcopy(xvfc)
     
     xvfc.coords['depth'] = depthsnow
 
@@ -441,4 +451,4 @@ def Profile_gen4(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_level=0, noise_
         xvfc['dexc_diff'] = xvfc['dD_diff'] - 8 * xvfc['d18O_diff']
         xvfc['dexc_raw_diff'] = xvfc['dD_raw_diff'] - 8 * xvfc['d18O_raw_diff']
 
-    return xvfc,xvfcold
+    return xvfc

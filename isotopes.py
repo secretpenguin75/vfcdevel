@@ -23,16 +23,23 @@ def temp_to_iso_DC(Temp,iso,fit='era5',dfit='default'):
     #Definition of the isotopic composition - temperature relationship
     
     if fit=='Mathieu':
+        # equation (1) in casado 2021
         alpha = 0.46; 
         beta = -32;
         
-    if fit=='era5':
-        alpha = 0.45
+    if fit=='era5 t2m':
+        # fit of era t2m on the period 2008-2022 ignoring precip samples with dexc<0
+        alpha = 0.44
         beta=-33
 
-    if fit=='lmdz':
-        alpha = 0.38
-        beta=-33
+    if fit=='lmdz tsol':
+        # old fit based on lmdz tsol
+        alpha = 0.33
+        beta=-37
+
+    if fit=='lmdz t2m':
+        alpha = 0.36
+        beta=-36
     
     d18O = alpha*(Temp-273.15)+beta
 
