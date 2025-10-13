@@ -4,13 +4,16 @@ import numpy as np
 import copy
 import scipy
 
-def read_species(columns):
+def read_species(columns,method='forward'):
 
     species = {}
     for key in columns:
         for spec in ['d18O','dD','dexc']:
             if spec in key:
-                species[key] = spec
+                if method == 'forward':
+                    species[key] = spec
+                if method == 'backward':
+                    species[spec] = key
 
     return species
 

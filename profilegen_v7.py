@@ -30,36 +30,8 @@ from tqdm.notebook import tqdm
 from scipy.interpolate import interp1d
 
 
-def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_m,sublprofile = 'triangle',isovap = None):
-
-    # dspec = d18O or dD
-    # isoarray = isotopes vs depth in mmwe at step i
-    # res resolution in mmwe of the corresponding depth array
-    # tempi = surface temperature at step i
-    # evapi = evaporation at step i
-
-    #totevapi = Evap.iloc[i]
-    #tempi = Tatm.iloc[i]
+def sublimation_profile(deptharray,subl_depth_m,sublprofile = 'triangle'):
     
-    spec = dspec[1:] # remove d prefix
-
-    # prepare fractionation coefficient in dictionaries and arrays
-
-    #rhowater = 1000
-
-    #M = reswe*rhowater # mass in a layer of 1mm (we are still in water equivalent)
-
-    #M = np.diff(deptharray,append=np.nan)*rhoarray # mass in each layer / m2 = dz*rho
-    
-    M = Marray # new! we keep track of the mass anomaly in each layer
-    
-    #h = df['h'] # varying saturatio1
-    h=0.8
-    
-    k = fm.kdiff('Cappa',spec,0.4)
-    
-    alphaeq = fm.Frac_eq('Maj', spec ,tempi-273.15) # considering surface temperature only
-
     # create a 1D array that has just the sublimation values at time Ti
 
     if sublprofile =='triangle':
@@ -72,8 +44,35 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
         weight = np.exp(-deptharray/subl_depth_m)
         weight /= np.sum(weight)
 
+    return weight
 
-    TE = weight*totevapi 
+def sublimation_step(M,TE,isoarray,dspec,tatm,isovap = None):
+
+    # dspec = d18O or dD
+    # isoarray = isotopes vs depth in mmwe at step i
+    # res resolution in mmwe of the corresponding depth array
+    # tempi = surface temperature at step i
+    # evapi = evaporation at step i
+
+    #totevapi = Evap.iloc[i]
+    #tatm = Tatm.iloc[i]
+    
+    spec = dspec[1:] # remove d prefix
+
+    # prepare fractionation coefficient in dictionaries and arrays
+
+    #rhowater = 1000
+
+    #M = reswe*rhowater # mass in a layer of 1mm (we are still in water equivalent)
+
+    #M = np.diff(deptharray,append=np.nan)*rhoarray # mass in each layer / m2 = dz*rho
+        
+    #h = df['h'] # varying saturatio1
+    h=0.8
+    
+    k = fm.kdiff('Cappa',spec,0.4)
+    
+    alphaeq = fm.Frac_eq('Maj', spec ,tatm-273.15) # considering surface temperature only
 
     if np.max(TE>M)>0:
         print('warning, evaporation exceeded snow layer content')
@@ -82,33 +81,36 @@ def sublimation_step(deptharray,Marray,isoarray,dspec,tempi,totevapi,subl_depth_
     if isovap is None:
         # apply closure assumption
 
-        sigma = (M - TE*(1-k)/(1-h*k)/alphaeq)/(M-TE) # <----- a vector that works spatially 
-        
+        #sigma = (M - TE*(1-k)/(1-h*k)/alphaeq)/(M-TE) # <----- a vector that works spatially # (1-k typo in first version???)
+        sigma = (M - TE*(1-k)/(1-h*k)/alphaeq)/(M-TE) # <----- a vector that works spatially
+
         isoarraysubl = sigma*isoarray+(sigma-1)*1e3 # one operation sublimation
 
     else:
         # use the classical CG equation
 
-        sigma1 = (M - TE*(1-k)/(1-h)/alphaeq)/(M-TE)
+        sigma1 = (M - TE * (1-k)/(1-h)/alphaeq)/(M-TE)
 
         sigma2 = TE*h*(1-k)/(1-h)/(M-TE)
 
         isoarraysubl = sigma1*isoarray + sigma2 * isovap + (sigma1+sigma2-1)*1e3
 
-    return isoarraysubl,TE
-    
+    return isoarraysubl
+
 def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res = 1e-3,
-               storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3,df_surf = None,surf_depth_m = 1e-2,Tsol = None):
+               storage_diffusion_cm = None , verbose = False, keeplog = False, logperiod = 1,subl_depth_m = 50*1e-3,df_surf = None,surf_depth_m = 1e-2,Tsol = None,df_vap = None):
 
 
     # parameters to be reintroduced later:
     # noise_scale_m
     # mixing_level
     # noise_level
+
+    ##############################
+    ##############################
+    ## Data preparation
     
     reswe = res*rho/1000 # the working resolution for water depth should be smaller by a factor 1000/rho than the target resolution for snow
-
-    ## Data preparation
 
     Time = pd.Series(list(map(datetime_to_decimalyear,Date))) # convert input dataframe index to decimalyear, as it is easier to manage for block averages and such alongside other properties of snow
 
@@ -125,7 +127,7 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
 
     ## Compute precipitation intermittent depth serie  
 
-    depthwe_raw = Tp.iloc[::-1].cumsum().to_numpy()[::-1]
+    depthwe_raw = Tp.iloc[::-1].cumsum().to_numpy()[::-1] # sum from the top and keep past to present order
     depthwe_raw = depthwe_raw/1000
 
     # Preparing VFC df
@@ -143,18 +145,23 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
     if type(Proxies) == pd.Series:
         Proxies = pd.DataFrame(Proxies)
 
-    speciesmap = read_species(Proxies.columns)
+    speciesmap = read_species(Proxies.columns,'forward')
     print('Input species assigned as:')
     print(speciesmap)
     species = list(speciesmap.values())
 
     if df_surf is not None:
-        surfspeciesmap = read_species(df_surf.columns)
+        surfspeciesmap = read_species(df_surf.columns,'backward')
         print('Surface species assigned as:')
         print(surfspeciesmap) 
 
-    if Te is not None:
-        Te = np.maximum(Te,0) # for now, ignore negative sublimation
+    if df_vap is not None:
+        vapspeciesmap = read_species(df_vap.columns,'backward')
+        print('Vapor species assigned as:')
+        print(vapspeciesmap) 
+
+    #if Te is not None:
+    #    Te = np.maximum(Te,0) # for now, ignore negative sublimation
 
     
     Proxies = Proxies.rename(columns = speciesmap)
@@ -165,8 +172,15 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
         species += ['dD']
     
 
+    # additionaly to the precipitation proxies, we add atmospheric temperature and vapor isotopes
+    # to be weighted by precip at high resolution so the value for each layer is the value weighted by precip in that layer
     # keep track of deposition time
     Proxies.insert(0,'deposition_time',Time.values)
+    Proxies.insert(0,'tatm',Tatm.values)
+
+    if df_vap is not None:
+        for dspec in list(set(['d18O','dD']) & set(species) & set(vapspeciesmap.keys())):
+            Proxies.insert(0,dspec+'_vap', np.interp(Time.values,list(map(datetime_to_decimalyear,df_vap.index)),df_vap[vapspeciesmap[dspec]]))
 
 
     # INITIAL INTERPOLATION STEP
@@ -194,10 +208,14 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
 
     
     xvfc0 = xvfc0.rename({key:key+'_raw' for key in species}) # change column names to 'd18O_raw' and 'dexc_raw'    
-    
+
+    isocolumns = list(set(['d18O','dD']) & set(species)) # columns for working with isotopes (we dont sublimate dexc)
+
     for dspec in list(set(['d18O','dD']) & set(species)):
         # duplicate isotope column for later analyses with and without post dep effect
-        xvfc0[dspec] = xvfc0[dspec+'_raw'].copy()   
+        xvfc0[dspec] = xvfc0[dspec+'_raw'].copy()
+        isocolumns.append(dspec+'_raw')
+
     
 
     # Prepare physical parameters: density
@@ -212,15 +230,22 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
     xvfc0['depthsnow'] = xr.DataArray(depthsnow,coords={'depth':xvfc0.coords['depth']}) # -> physical depth to use in time loop
     
     xvfc0['total_mass'] = xr.DataArray(np.full(depthwe_even.shape,reswe*1000),coords={'depth':xvfc0.coords['depth']}) # new! keep track of the water mass in each column
+    # NB: in the even snow depth array (unsublimated) total mass will equal rhoHL and this is a confirmation that we have done things right
     
-    xvfc0['te'] = xr.DataArray(np.full(depthwe_even.shape,reswe*1000),coords={'depth':xvfc0.coords['depth']}) # new! keep track of the water mass in each column
+    xvfc0['te'] = xr.DataArray(np.full(depthwe_even.shape,np.nan),coords={'depth':xvfc0.coords['depth']}) # new! keep track of the water mass in each column
     xvfc0['tfirn'] = xr.DataArray(np.full(depthwe_even.shape,np.nanmean(Tsol)),coords={'depth':xvfc0.coords['depth']}) # new! keep track of the water mass in each column
  
 
     #depth_we = xvfc0['depthwe'].values
     time_even = xvfc0['deposition_time'].values
-    tatm_even = np.interp(time_even,Time.values,Tatm.values) # keep track of atmospheric temperature when snow was deposited
-    xvfc0['tatm'] = xr.DataArray(tatm_even,coords={'depth':xvfc0.coords['depth']}) # new! keep track of the water mass in each column
+    #tatm_even = np.interp(time_even,Time.values,Tatm.values) # keep track of atmospheric temperature when snow was deposited
+    
+    #xvfc0['tatm'] = xr.DataArray(tatm_even,coords={'depth':xvfc0.coords['depth']}) # new! keep track of the atmospheric temperatures associated to precipitated layer
+    
+   
+    
+
+    
 
     # depth_we: uniform array at resolution reswe with max depthwe of final core
     # depth_even: uniform array at resolution res with max snow depth of final core
@@ -231,7 +256,7 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
     # situation for now: keep dataset in depthwe even, use dephtsnow for computations
 
     
-    if keeplog is False and Te is None:
+    if keeplog is False:
 
         # if we do not want to keep the time log (for example to monitor surface snow)
         # and if surface processes are off 
@@ -241,10 +266,44 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
         # INTRODUCE VFC IN REAL SNOW DEPTH
         xvfc = copy.deepcopy(xvfc0)
 
+        # 1-step sublimation
+        if Te is not None:
+
+            # we compute the integrated sublimation profile as
+            weight = sublimation_profile(depthsnow,subl_depth_m,sublprofile='exponential')
+            totevapp = weight.reshape((len(weight),1))@Te.values.reshape((1,len(Te)))
+            depth2d = np.add.outer(depthwe_even[::-1],-depthwe_raw)
+            mask = depth2d[:,:]>0
+            totevapp[~mask] = np.nan
+            totevapp2 = dflip0(totevapp.T,axis=1).T # this is a way to go from depth scale to elevation scale ~= homologous to depth scale of the final profile, and so to take the mean over depth
+
+            TE = np.nansum(totevapp2,axis=1)[::-1] # dont ask me how.. why... this is not the same as non .T and axis 0... and simplify another day
+
+            M = xvfc['total_mass'].values
+            temp = xvfc['tatm'].values # mean atmospheric temperature associated to a (1mm) snow layer (at time of deposition)            
+
+            for dspec in list(set(['d18O','dD']) & set(species)):
+
+                isoarray = xvfc[dspec].values
+
+                if df_vap is None:
+                #subl_depth_we = subl_depth_m*rho/1000
+                    isosubl = sublimation_step(M,TE,isoarray,dspec,temp)
+                else:
+                    isovap = xvfc[dspec+'_vap'].values
+                    isosubl = sublimation_step(M,TE,isoarray,dspec,temp,isovap = isovap)
+
+                xvfc[dspec].values = isosubl
+            xvfc['te'].values = TE
+            xvfc['total_mass'] -= TE
+
         # introduce a dummy, length 0 dimension for time in case there is no need for time loop
 
-        coolvars = ['deposition_time','d18O','dD','d18O_raw','dD_raw','total_mass']
+        coolvars = ['deposition_time','total_mass']+isocolumns 
+        
         xvfc[coolvars] = xvfc[coolvars].expand_dims({"time":[Date.values[-1]]},axis=0).isel(time=-1)
+
+        
 
     else:
 
@@ -259,7 +318,7 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
         
 
         # variables considered for the time loop
-        coolvars = ['deposition_time','d18O','dD','d18O_raw','dD_raw','tfirn','te','total_mass']
+        coolvars = ['deposition_time','tfirn','te','total_mass']+isocolumns
         
         for key in coolvars:
             xvfc[key] = xr.full_like(xvfc[key],np.nan)
@@ -291,15 +350,19 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
         indM = coolvars.index('total_mass')
         indE = coolvars.index('te')
         indT = coolvars.index('tfirn')
-        indiso = [coolvars.index(iso) for iso in ['d18O','dD','d18O_raw','dD_raw']]
+        indiso = [coolvars.index(iso) for iso in isocolumns]
 
         # vertical index of surface
         indmix = np.argmin(np.abs(depthsnow-mixing_scale_m))
-        indsurf = np.argmin(np.abs(depthsnow-surf_depth_m))
+        indsurf = np.argmin(np.abs(depthsnow-surf_depth_m)) # note: should rewrite things cleanly in mmmwe depth again
 
-        # index for which we have surface values
+        # indices for which we have surface values
         if df_surf is not None:
             surfindexer = list(Date.get_indexer(df_surf.index,method='nearest'))
+
+        # indices for which we have vapor values
+        if df_vap is not None:
+            vapindexer = list(Date.get_indexer(df_vap.index,method='nearest'))
         
         for i in timebar:
             #### in depth
@@ -360,8 +423,16 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
                 for dspec in list(set(['d18O','dD']) & set(species)):
                     ind = coolvars.index(dspec)
                     
+                    weight = sublimation_profile(depthsnow,subl_depth_m,sublprofile='exponential')
+                    
+                    TEi = weight*Te.iloc[i]
+                    
+                    if df_vap is None:
                     #subl_depth_we = subl_depth_m*rho/1000
-                    logvfci[:,ind],TEi = sublimation_step(depthsnow,logvfci[:,indM],logvfci[:,ind],dspec,Tatm.iloc[i],Te.iloc[i],subl_depth_m,sublprofile = 'exponential')
+                        logvfci[:,ind] = sublimation_step(logvfci[:,indM],TEi,logvfci[:,ind],dspec,Tatm.iloc[i])
+                    else:
+                        logvfci[:,ind] = sublimation_step(logvfci[:,indM],TEi,logvfci[:,ind],dspec,Tatm.iloc[i],
+                                                              isovap = df_vap[vapspeciesmap[dspec]].iloc[vapindexer.index(i)])
                 logvfci[:,indE] = TEi
                 logvfci[:,indM] -= TEi
                     
@@ -408,6 +479,8 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
 
     # WARNING: it seems like we are loosing a bit of mass (and no evap?) with this method
     # will have to be refined
+
+    # make this whole section cleaner with groupby.mean and groupby.sum for accumulated values? I dont know
     
     xvfc['te_acc'] = xvfc['te'].cumsum(dim='depth')
     xvfc['total_mass_acc'] = xvfc['total_mass'].cumsum(dim='depth')
@@ -415,12 +488,12 @@ def Profile_gen(Date, Tatm, Tp, Proxies, rho, Te = None, mixing_scale_m = 0, res
     xvfc = xvfc.interp({'depth':np.arange(0,np.max(depthsnow),res)},method='linear')
 
     xvfc['te'] = xvfc['te_acc'].diff(dim='depth')
-    xvfc['te'].transpose('depth',...).loc[0] = xvfc['te_acc'].sel(depth=0).values
-
+    xvfc['te'].transpose('depth',...).loc[0] = xvfc['te_acc'].sel(depth=0).values # restore first value
+    xvfc['te'] = xvfc['te'].where(np.isfinite(xvfc['deposition_time'])) # reaply a mask on 0 values by using (any) variable from the time loop
 
     xvfc['total_mass'] = xvfc['total_mass_acc'].diff(dim='depth')
-    xvfc['total_mass'].transpose('depth',...).loc[0] = xvfc['total_mass_acc'].sel(depth=0).values
-
+    xvfc['total_mass'].transpose('depth',...).loc[0] = xvfc['total_mass_acc'].sel(depth=0).values # restore first value
+    xvfc['total_mass'] = xvfc['total_mass'].where(np.isfinite(xvfc['deposition_time']))
 
     del xvfc['te_acc']
     del xvfc['total_mass_acc']
